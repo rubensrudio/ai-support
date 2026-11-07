@@ -1,0 +1,6217 @@
+{
+ "versao": 2,
+ "feature": "initial",
+ "gerado_em": "2026-11-07T10:56:31",
+ "hashes": {
+  "plan": "8dc7092f3793f08b",
+  "tasks": "ff8fb8be03bead8c"
+ },
+ "comandos": [
+  {
+   "alvo": "setup",
+   "dir": ".",
+   "cmd": "uv sync",
+   "relatorio": null
+  },
+  {
+   "alvo": "setup",
+   "dir": "web",
+   "cmd": "npm ci",
+   "relatorio": null
+  },
+  {
+   "alvo": "lint",
+   "dir": ".",
+   "cmd": "uv run ruff check . --output-format=concise",
+   "relatorio": null
+  },
+  {
+   "alvo": "lint",
+   "dir": "web",
+   "cmd": "npx ng lint",
+   "relatorio": null
+  },
+  {
+   "alvo": "typecheck",
+   "dir": ".",
+   "cmd": "uv run mypy",
+   "relatorio": null
+  },
+  {
+   "alvo": "typecheck",
+   "dir": "web",
+   "cmd": "npx tsc --noEmit -p tsconfig.app.json",
+   "relatorio": null
+  },
+  {
+   "alvo": "test",
+   "dir": ".",
+   "cmd": "uv run pytest -q",
+   "relatorio": "reports/junit.xml"
+  },
+  {
+   "alvo": "test",
+   "dir": "web",
+   "cmd": "npx ng test --watch=false",
+   "relatorio": "reports/junit.xml"
+  },
+  {
+   "alvo": "test_related",
+   "dir": ".",
+   "cmd": "uv run pytest -q {files}",
+   "relatorio": "reports/junit.xml"
+  },
+  {
+   "alvo": "test_related",
+   "dir": "web",
+   "cmd": "npx ng test --watch=false {include}",
+   "relatorio": "reports/junit.xml"
+  },
+  {
+   "alvo": "e2e",
+   "dir": "web",
+   "cmd": "npx playwright test {files}",
+   "relatorio": "reports/e2e-junit.xml"
+  },
+  {
+   "alvo": "e2e_arquivo",
+   "dir": ".",
+   "cmd": "web/e2e/regressao/{nome}.spec.ts",
+   "relatorio": null
+  },
+  {
+   "alvo": "build",
+   "dir": ".",
+   "cmd": "uv build",
+   "relatorio": null
+  },
+  {
+   "alvo": "build",
+   "dir": "web",
+   "cmd": "npx ng build",
+   "relatorio": null
+  }
+ ],
+ "historias_p1": {
+  "P1: Fundação mensurável": [
+   "FND-01",
+   "FND-02",
+   "FND-03",
+   "FND-04",
+   "FND-05",
+   "FND-90"
+  ],
+  "P1: Conversa e memória": [
+   "CHAT-01",
+   "CHAT-02",
+   "CHAT-03",
+   "CHAT-04",
+   "CHAT-05",
+   "CHAT-06",
+   "CHAT-07",
+   "CHAT-08",
+   "CHAT-09",
+   "CHAT-10",
+   "CHAT-90",
+   "CHAT-91",
+   "CHAT-92",
+   "CHAT-93",
+   "CHAT-94",
+   "CHAT-95"
+  ],
+  "P1: Respostas fundamentadas": [
+   "RAG-01",
+   "RAG-02",
+   "RAG-03",
+   "RAG-04",
+   "RAG-05",
+   "RAG-06",
+   "RAG-07",
+   "RAG-08",
+   "RAG-09",
+   "RAG-10",
+   "RAG-11",
+   "RAG-14",
+   "RAG-15",
+   "RAG-16",
+   "RAG-17",
+   "RAG-18",
+   "RAG-19",
+   "RAG-90",
+   "RAG-91",
+   "RAG-92",
+   "RAG-93",
+   "RAG-94"
+  ],
+  "P1: Definição de pronto e vitrine": [
+   "DOD-01",
+   "DOD-02",
+   "DOD-03",
+   "DOD-04"
+  ]
+ },
+ "tasks": {
+  "TASK-001": {
+   "titulo": "Bootstrap Python project and typed settings",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [],
+   "producao": [
+    "pyproject.toml",
+    "api/config.py"
+   ],
+   "teste": [
+    "tests/unit/api/test_config.py"
+   ],
+   "wiring": [
+    ".gitignore",
+    ".venv/",
+    "reports/",
+    "__pycache__/",
+    ".env",
+    "web/node_modules/",
+    "web/dist/",
+    ".angular/",
+    ".env.example",
+    "api/__init__.py",
+    "uv.lock"
+   ],
+   "contratos": [
+    "CT-1"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "FND-90",
+    "CHAT-08",
+    "CHAT-09",
+    "DEMO-08",
+    "DEMO-05"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-002": {
+   "titulo": "Structured JSON logging with trace id middleware",
+   "tipo": "infra",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-001"
+   ],
+   "producao": [
+    "api/observability/logging.py",
+    "api/observability/middleware.py"
+   ],
+   "teste": [
+    "tests/unit/api/observability/test_logging.py"
+   ],
+   "wiring": [
+    "api/observability/__init__.py"
+   ],
+   "contratos": [
+    "CT-1",
+    "CT-2"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "FND-03",
+    "FND-90"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-003": {
+   "titulo": "Error catalog and bilingual user messages",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-002"
+   ],
+   "producao": [
+    "api/errors.py",
+    "api/messages.py"
+   ],
+   "teste": [
+    "tests/unit/api/test_errors.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-2",
+    "CT-3",
+    "CT-4"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-92",
+    "CHAT-95"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-004": {
+   "titulo": "Async database engine and pgvector baseline migration",
+   "tipo": "infra",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-001"
+   ],
+   "producao": [
+    "api/db/engine.py",
+    "api/db/migrations/versions/0001_enable_pgvector.py"
+   ],
+   "teste": [
+    "tests/integration/api/db/test_engine.py"
+   ],
+   "wiring": [
+    "tests/conftest.py",
+    "alembic.ini",
+    "api/db/__init__.py",
+    "api/db/migrations/env.py",
+    "Base.metadata",
+    "api/db/migrations/script.py.mako",
+    "docker-compose.yml",
+    "pgvector/pgvector:pg16"
+   ],
+   "contratos": [
+    "CT-1",
+    "CT-5"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "FND-01"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-005": {
+   "titulo": "LLM client contract and scripted fake adapter",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-001"
+   ],
+   "producao": [
+    "api/llm/client.py",
+    "api/llm/fake.py"
+   ],
+   "teste": [
+    "tests/unit/api/llm/test_fake_client.py"
+   ],
+   "wiring": [
+    "api/llm/__init__.py"
+   ],
+   "contratos": [
+    "CT-6"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-01"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-006": {
+   "titulo": "Anthropic adapter with tool calling and structured output",
+   "tipo": "integração-externa",
+   "risco": "alto",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-005"
+   ],
+   "producao": [
+    "api/llm/anthropic_adapter.py"
+   ],
+   "teste": [
+    "tests/unit/api/llm/test_anthropic_adapter.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-1",
+    "CT-6"
+   ],
+   "ancora": [
+    "AS-8"
+   ],
+   "requisitos": [
+    "CHAT-01",
+    "FND-90",
+    "TRI-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-007": {
+   "titulo": "Model pricing table and cost estimation",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-005"
+   ],
+   "producao": [
+    "api/llm/pricing.py",
+    "config/pricing.json"
+   ],
+   "teste": [
+    "tests/unit/api/llm/test_pricing.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-1",
+    "CT-6",
+    "CT-7"
+   ],
+   "ancora": [
+    "AS-2"
+   ],
+   "requisitos": [
+    "FND-04",
+    "CACHE-03"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-008": {
+   "titulo": "Token counting utility",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-005"
+   ],
+   "producao": [
+    "api/llm/tokens.py"
+   ],
+   "teste": [
+    "tests/unit/api/llm/test_tokens.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-6",
+    "CT-8"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-05"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-009": {
+   "titulo": "Instrumented LLM client with per-call cost log and factory",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-002",
+    "TASK-006",
+    "TASK-007",
+    "TASK-008"
+   ],
+   "producao": [
+    "api/llm/instrumented.py",
+    "api/llm/factory.py"
+   ],
+   "teste": [
+    "tests/unit/api/llm/test_instrumented.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-1",
+    "CT-2",
+    "CT-6",
+    "CT-7",
+    "CT-8",
+    "CT-9"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "FND-04",
+    "CHAT-05",
+    "FND-90"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-010": {
+   "titulo": "FastAPI app factory and health endpoint",
+   "tipo": "infra",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-003",
+    "TASK-004"
+   ],
+   "producao": [
+    "api/main.py",
+    "api/health.py"
+   ],
+   "teste": [
+    "tests/integration/api/test_health.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-1",
+    "CT-2",
+    "CT-3",
+    "CT-5"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "FND-01",
+    "FND-03"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-011": {
+   "titulo": "Minimal eval runner with JSONL datasets",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-001"
+   ],
+   "producao": [
+    "evals/runner.py",
+    "evals/dataset.py"
+   ],
+   "teste": [
+    "tests/unit/evals/test_runner.py",
+    "evals/datasets/smoke.jsonl"
+   ],
+   "wiring": [
+    "evals/__init__.py",
+    "evals/__main__.py"
+   ],
+   "contratos": [
+    "CT-1",
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "FND-05"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-012": {
+   "titulo": "Angular workspace scaffold with Vitest JUnit, ESLint and Playwright",
+   "tipo": "infra",
+   "risco": "médio",
+   "perfil": "frontend",
+   "agente": "hm-designer",
+   "testes": "unit",
+   "depende_de": [],
+   "producao": [
+    "web/package.json",
+    "web/angular.json"
+   ],
+   "teste": [
+    "web/src/app/app.spec.ts"
+   ],
+   "wiring": [
+    "web/",
+    "tsconfig*.json",
+    "eslint.config.js",
+    "src/**",
+    "public/**",
+    "package-lock.json",
+    "web/vitest-base.config.ts",
+    "reports/junit.xml",
+    "angular.json",
+    "web/playwright.config.ts",
+    "reports/e2e-junit.xml",
+    "web/proxy.conf.json",
+    "http://localhost:8000",
+    "web/Dockerfile",
+    "web/nginx.conf"
+   ],
+   "contratos": [],
+   "ancora": [],
+   "requisitos": [
+    "FND-01"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-013": {
+   "titulo": "Docker images and one-command compose stack",
+   "tipo": "infra",
+   "risco": "médio",
+   "perfil": "infra",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-010",
+    "TASK-012"
+   ],
+   "producao": [
+    "docker-compose.yml"
+   ],
+   "teste": [
+    "tests/unit/infra/test_compose.py"
+   ],
+   "wiring": [
+    "docker/api-entrypoint.sh"
+   ],
+   "contratos": [],
+   "ancora": [],
+   "requisitos": [
+    "FND-01"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-014": {
+   "titulo": "CI workflow for lint, tests and minimal evals",
+   "tipo": "infra",
+   "risco": "médio",
+   "perfil": "infra",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-004",
+    "TASK-011",
+    "TASK-012"
+   ],
+   "producao": [
+    ".github/workflows/ci.yml"
+   ],
+   "teste": [
+    "tests/unit/infra/test_ci_workflow.py"
+   ],
+   "wiring": [],
+   "contratos": [],
+   "ancora": [],
+   "requisitos": [
+    "FND-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-015": {
+   "titulo": "Initial English README and results log",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "infra",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-013"
+   ],
+   "producao": [
+    "README.md",
+    "docs/results.md"
+   ],
+   "teste": [
+    "tests/unit/docs/test_docs_initial.py"
+   ],
+   "wiring": [
+    "docs/adr/0000-template.md"
+   ],
+   "contratos": [],
+   "ancora": [],
+   "requisitos": [
+    "FND-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-016": {
+   "titulo": "Phase definition-of-done checker script",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-011"
+   ],
+   "producao": [
+    "scripts/check_phase.py"
+   ],
+   "teste": [
+    "tests/unit/scripts/test_check_phase.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10",
+    "CT-11"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-017": {
+   "titulo": "Demo harness and results writer",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-009"
+   ],
+   "producao": [
+    "demos/common.py"
+   ],
+   "teste": [
+    "tests/unit/demos/test_common.py"
+   ],
+   "wiring": [
+    "demos/__init__.py",
+    "demos/data/"
+   ],
+   "contratos": [
+    "CT-1",
+    "CT-12",
+    "CT-9"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-018": {
+   "titulo": "Prompt loader and base system prompt",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-001"
+   ],
+   "producao": [
+    "api/prompts.py",
+    "prompts/system.md"
+   ],
+   "teste": [
+    "tests/unit/api/test_prompts.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-13"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-10",
+    "RAG-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-019": {
+   "titulo": "Stateless chat service and request schemas",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-003",
+    "TASK-009",
+    "TASK-018"
+   ],
+   "producao": [
+    "api/chat/service.py",
+    "api/chat/schemas.py"
+   ],
+   "teste": [
+    "tests/unit/api/chat/test_service_stateless.py"
+   ],
+   "wiring": [
+    "api/chat/__init__.py"
+   ],
+   "contratos": [
+    "CT-1",
+    "CT-13",
+    "CT-14",
+    "CT-15",
+    "CT-3",
+    "CT-4",
+    "CT-6",
+    "CT-9"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-01",
+    "CHAT-09",
+    "CHAT-90",
+    "CHAT-91",
+    "CHAT-92"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-020": {
+   "titulo": "POST /chat endpoint",
+   "tipo": "crud-padrão",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-010",
+    "TASK-019"
+   ],
+   "producao": [
+    "api/chat/routes.py"
+   ],
+   "teste": [
+    "tests/integration/api/chat/test_chat_route.py"
+   ],
+   "wiring": [
+    "api/main.py"
+   ],
+   "contratos": [
+    "CT-14",
+    "CT-15",
+    "CT-3"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-01",
+    "CHAT-90",
+    "CHAT-91",
+    "CHAT-92"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-021": {
+   "titulo": "Phase 01 stateless demo script",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-017",
+    "TASK-020"
+   ],
+   "producao": [
+    "demos/demo_01_stateless.py"
+   ],
+   "teste": [
+    "tests/unit/demos/test_demo_01.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-12",
+    "CT-15"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-02",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-022": {
+   "titulo": "Phase 01 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-016",
+    "TASK-021"
+   ],
+   "producao": [
+    "docs/adr/0001-llm-api-call.md",
+    "evals/datasets/phase_01.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_01_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10",
+    "CT-11"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-023": {
+   "titulo": "Customer and session schema",
+   "tipo": "migration",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-022"
+   ],
+   "producao": [
+    "api/auth/models.py",
+    "api/db/migrations/versions/0002_customers_sessions.py"
+   ],
+   "teste": [
+    "tests/integration/api/auth/test_auth_models.py"
+   ],
+   "wiring": [
+    "api/auth/__init__.py",
+    "api/db/migrations/env.py",
+    "api.auth.models"
+   ],
+   "contratos": [
+    "CT-18",
+    "CT-5"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TOOL-95",
+    "DEMO-06"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-024": {
+   "titulo": "Conversation and message schema",
+   "tipo": "migration",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-023"
+   ],
+   "producao": [
+    "api/chat/models.py",
+    "api/db/migrations/versions/0003_conversations_messages.py"
+   ],
+   "teste": [
+    "tests/integration/api/chat/test_chat_models.py"
+   ],
+   "wiring": [
+    "api/db/migrations/env.py",
+    "api.chat.models"
+   ],
+   "contratos": [
+    "CT-18",
+    "CT-19",
+    "CT-5"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-03",
+    "CHAT-93"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-025": {
+   "titulo": "Session authentication service and FastAPI dependencies",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-023"
+   ],
+   "producao": [
+    "api/auth/service.py",
+    "api/auth/deps.py"
+   ],
+   "teste": [
+    "tests/integration/api/auth/test_auth_service.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-1",
+    "CT-16",
+    "CT-18",
+    "CT-3"
+   ],
+   "ancora": [
+    "AS-1",
+    "AS-7"
+   ],
+   "requisitos": [
+    "TOOL-95",
+    "DEMO-01",
+    "TOOL-03"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-026": {
+   "titulo": "Login, logout and me endpoints",
+   "tipo": "crud-padrão",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-025"
+   ],
+   "producao": [
+    "api/auth/routes.py"
+   ],
+   "teste": [
+    "tests/integration/api/auth/test_auth_routes.py"
+   ],
+   "wiring": [
+    "api/main.py"
+   ],
+   "contratos": [
+    "CT-16",
+    "CT-17"
+   ],
+   "ancora": [
+    "AS-1"
+   ],
+   "requisitos": [
+    "DEMO-01",
+    "TOOL-95"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-027": {
+   "titulo": "Fixed test personas seed command",
+   "tipo": "crud-padrão",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-025"
+   ],
+   "producao": [
+    "api/seed/personas.py",
+    "api/seed/__main__.py"
+   ],
+   "teste": [
+    "tests/integration/api/seed/test_personas.py"
+   ],
+   "wiring": [
+    "api/seed/__init__.py",
+    "docker/api-entrypoint.sh"
+   ],
+   "contratos": [
+    "CT-16",
+    "CT-18",
+    "CT-23"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DEMO-06"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-028": {
+   "titulo": "Conversation repository with ownership checks",
+   "tipo": "crud-padrão",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-024"
+   ],
+   "producao": [
+    "api/chat/repository.py"
+   ],
+   "teste": [
+    "tests/integration/api/chat/test_repository.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-19",
+    "CT-20",
+    "CT-3"
+   ],
+   "ancora": [
+    "AS-1"
+   ],
+   "requisitos": [
+    "CHAT-03",
+    "CHAT-93",
+    "CHAT-94"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-029": {
+   "titulo": "Message language detection (pt, en, other)",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-022"
+   ],
+   "producao": [
+    "api/chat/language.py"
+   ],
+   "teste": [
+    "tests/unit/api/chat/test_language.py"
+   ],
+   "wiring": [
+    "pyproject.toml"
+   ],
+   "contratos": [
+    "CT-21"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-10",
+    "CHAT-95"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-030": {
+   "titulo": "Context budget with summarization of older messages",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-024"
+   ],
+   "producao": [
+    "api/chat/context.py",
+    "prompts/summarize.md"
+   ],
+   "teste": [
+    "tests/unit/api/chat/test_context.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-13",
+    "CT-19",
+    "CT-22",
+    "CT-6",
+    "CT-8"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-06",
+    "CHAT-08"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-031": {
+   "titulo": "Conversational chat service with persisted history",
+   "tipo": "lógica-negócio",
+   "risco": "alto",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-025",
+    "TASK-028",
+    "TASK-029",
+    "TASK-030"
+   ],
+   "producao": [
+    "api/chat/service.py"
+   ],
+   "teste": [
+    "tests/integration/api/chat/test_service_history.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-15",
+    "CT-16",
+    "CT-20",
+    "CT-21",
+    "CT-22",
+    "CT-4"
+   ],
+   "ancora": [
+    "AS-3"
+   ],
+   "requisitos": [
+    "CHAT-03",
+    "CHAT-04",
+    "CHAT-06",
+    "CHAT-10",
+    "CHAT-95",
+    "CHAT-93"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-032": {
+   "titulo": "Authenticated chat route with conversation ownership",
+   "tipo": "crud-padrão",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-026",
+    "TASK-031"
+   ],
+   "producao": [
+    "api/chat/routes.py"
+   ],
+   "teste": [
+    "tests/integration/api/chat/test_chat_route_auth.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-14",
+    "CT-16"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-94",
+    "TOOL-95",
+    "DEMO-01"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-033": {
+   "titulo": "Web i18n service with pt and en dictionaries",
+   "tipo": "ui-puro",
+   "risco": "médio",
+   "perfil": "frontend",
+   "agente": "hm-designer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-012",
+    "TASK-022"
+   ],
+   "producao": [
+    "web/src/app/core/i18n/i18n.service.ts",
+    "web/src/app/core/i18n/messages.ts"
+   ],
+   "teste": [
+    "web/src/app/core/i18n/i18n.service.spec.ts"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-24"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "STR-08",
+    "STR-09",
+    "DEMO-11"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-034": {
+   "titulo": "Web auth service and route guard",
+   "tipo": "crud-padrão",
+   "risco": "médio",
+   "perfil": "frontend",
+   "agente": "hm-designer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-012",
+    "TASK-026"
+   ],
+   "producao": [
+    "web/src/app/core/auth/auth.service.ts",
+    "web/src/app/core/auth/auth.guard.ts"
+   ],
+   "teste": [
+    "web/src/app/core/auth/auth.service.spec.ts"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-17",
+    "CT-25"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DEMO-01"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-035": {
+   "titulo": "Bilingual login page with persona instructions",
+   "tipo": "ui-puro",
+   "risco": "médio",
+   "perfil": "frontend",
+   "agente": "hm-designer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-033",
+    "TASK-034"
+   ],
+   "producao": [
+    "web/src/app/features/login/login.page.ts",
+    "web/src/app/features/login/login.page.html"
+   ],
+   "teste": [
+    "web/src/app/features/login/login.page.spec.ts"
+   ],
+   "wiring": [
+    "web/src/app/app.routes.ts",
+    "web/src/app/core/i18n/messages.ts"
+   ],
+   "contratos": [
+    "CT-24",
+    "CT-25"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DEMO-01",
+    "DEMO-06",
+    "DEMO-11",
+    "STR-09"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-036": {
+   "titulo": "Web chat API client and shared models",
+   "tipo": "crud-padrão",
+   "risco": "médio",
+   "perfil": "frontend",
+   "agente": "hm-designer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-012",
+    "TASK-022"
+   ],
+   "producao": [
+    "web/src/app/core/chat/chat-api.service.ts",
+    "web/src/app/core/chat/chat.models.ts"
+   ],
+   "teste": [
+    "web/src/app/core/chat/chat-api.service.spec.ts"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-14",
+    "CT-26"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-01",
+    "TOOL-05"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-037": {
+   "titulo": "Chat page with conversation thread and input validation",
+   "tipo": "ui-puro",
+   "risco": "médio",
+   "perfil": "frontend",
+   "agente": "hm-designer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-033",
+    "TASK-034",
+    "TASK-036"
+   ],
+   "producao": [
+    "web/src/app/features/chat/chat.page.ts",
+    "web/src/app/features/chat/chat.page.html"
+   ],
+   "teste": [
+    "web/src/app/features/chat/chat.page.spec.ts"
+   ],
+   "wiring": [
+    "web/src/app/app.routes.ts",
+    "web/src/app/core/i18n/messages.ts",
+    "web/src/styles.scss"
+   ],
+   "contratos": [
+    "CT-24",
+    "CT-26"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-01",
+    "CHAT-90",
+    "CHAT-91",
+    "STR-08"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-038": {
+   "titulo": "Phase 02 context window demo with token chart",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-027",
+    "TASK-032"
+   ],
+   "producao": [
+    "demos/demo_02_context_window.py"
+   ],
+   "teste": [
+    "tests/integration/demos/test_demo_02.py"
+   ],
+   "wiring": [
+    "pyproject.toml"
+   ],
+   "contratos": [
+    "CT-12",
+    "CT-15",
+    "CT-22"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CHAT-02",
+    "CHAT-07",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-039": {
+   "titulo": "Phase 02 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-035",
+    "TASK-037",
+    "TASK-038"
+   ],
+   "producao": [
+    "docs/adr/0002-context-window.md",
+    "evals/datasets/phase_02.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_02_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-040": {
+   "titulo": "English support corpus and manifest",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-039"
+   ],
+   "producao": [
+    "corpus/en/",
+    "corpus/manifest.yaml"
+   ],
+   "teste": [
+    "tests/unit/corpus/test_manifest.py"
+   ],
+   "wiring": [],
+   "contratos": [],
+   "ancora": [],
+   "requisitos": [
+    "RAG-02",
+    "RAG-14",
+    "TOOL-16",
+    "TOOL-19"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-041": {
+   "titulo": "Portuguese support corpus mirroring the manifest",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-040"
+   ],
+   "producao": [
+    "corpus/pt/"
+   ],
+   "teste": [
+    "tests/unit/corpus/test_corpus_parity.py"
+   ],
+   "wiring": [],
+   "contratos": [],
+   "ancora": [],
+   "requisitos": [
+    "RAG-02",
+    "RAG-14",
+    "TOOL-16",
+    "TOOL-19"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-042": {
+   "titulo": "Corpus PDF builder and generated PDFs",
+   "tipo": "infra",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-041"
+   ],
+   "producao": [
+    "scripts/build_corpus_pdfs.py",
+    "corpus/pdf/"
+   ],
+   "teste": [
+    "tests/unit/scripts/test_build_corpus_pdfs.py"
+   ],
+   "wiring": [
+    "pyproject.toml"
+   ],
+   "contratos": [],
+   "ancora": [],
+   "requisitos": [
+    "RAG-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-043": {
+   "titulo": "Document and chunk schema with bilingual full-text column",
+   "tipo": "migration",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-039"
+   ],
+   "producao": [
+    "api/rag/models.py",
+    "api/db/migrations/versions/0004_documents_chunks.py"
+   ],
+   "teste": [
+    "tests/integration/api/rag/test_rag_models.py"
+   ],
+   "wiring": [
+    "api/rag/__init__.py",
+    "api/db/migrations/env.py",
+    "api.rag.models"
+   ],
+   "contratos": [
+    "CT-27",
+    "CT-5"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-14",
+    "RAG-15"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-044": {
+   "titulo": "Markdown and PDF parsers with token-based chunker",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-039"
+   ],
+   "producao": [
+    "ingest/parsers.py",
+    "ingest/chunking.py"
+   ],
+   "teste": [
+    "tests/unit/ingest/test_parsers_chunking.py"
+   ],
+   "wiring": [
+    "ingest/__init__.py"
+   ],
+   "contratos": [
+    "CT-8"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-01",
+    "RAG-91"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-045": {
+   "titulo": "Ingestion pipeline CLI and report",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-042",
+    "TASK-043",
+    "TASK-044"
+   ],
+   "producao": [
+    "ingest/pipeline.py",
+    "ingest/report.py"
+   ],
+   "teste": [
+    "tests/integration/ingest/test_pipeline.py"
+   ],
+   "wiring": [
+    "ingest/__main__.py"
+   ],
+   "contratos": [
+    "CT-27",
+    "CT-28",
+    "CT-5"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-01",
+    "RAG-02",
+    "RAG-14",
+    "RAG-91",
+    "RAG-92"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-046": {
+   "titulo": "Language-aware full-text search",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-043"
+   ],
+   "producao": [
+    "api/rag/fulltext.py"
+   ],
+   "teste": [
+    "tests/integration/api/rag/test_fulltext.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-27",
+    "CT-29"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-15",
+    "RAG-05",
+    "RAG-16"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-047": {
+   "titulo": "Retriever facade with pluggable retrieval modes",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-046"
+   ],
+   "producao": [
+    "api/rag/retriever.py"
+   ],
+   "teste": [
+    "tests/integration/api/rag/test_retriever.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-1",
+    "CT-29",
+    "CT-30"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-03",
+    "RAG-90",
+    "RAG-94"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-048": {
+   "titulo": "Prompt builder with numbered chunks and citation extraction",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-047"
+   ],
+   "producao": [
+    "api/chat/prompt_builder.py",
+    "api/rag/citations.py"
+   ],
+   "teste": [
+    "tests/unit/api/chat/test_prompt_builder.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-13",
+    "CT-22",
+    "CT-30",
+    "CT-31",
+    "CT-32",
+    "CT-6"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-03",
+    "RAG-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-049": {
+   "titulo": "Retrieval-augmented chat service",
+   "tipo": "lógica-negócio",
+   "risco": "alto",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-048"
+   ],
+   "producao": [
+    "api/chat/service.py"
+   ],
+   "teste": [
+    "tests/integration/api/chat/test_service_rag.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-15",
+    "CT-30",
+    "CT-31",
+    "CT-32",
+    "CT-4"
+   ],
+   "ancora": [
+    "AS-3"
+   ],
+   "requisitos": [
+    "RAG-03",
+    "RAG-04",
+    "RAG-90",
+    "RAG-94"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-050": {
+   "titulo": "LLM-as-judge faithfulness grader",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-039"
+   ],
+   "producao": [
+    "evals/judge.py",
+    "prompts/judge_faithfulness.md"
+   ],
+   "teste": [
+    "tests/unit/evals/test_judge.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10",
+    "CT-13",
+    "CT-33",
+    "CT-6"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-18",
+    "EVAL-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-051": {
+   "titulo": "Phase 03 RAG demo with hallucination benchmark",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-045",
+    "TASK-049",
+    "TASK-050"
+   ],
+   "producao": [
+    "demos/demo_03_rag.py",
+    "demos/data/phase03_questions.jsonl"
+   ],
+   "teste": [
+    "tests/integration/demos/test_demo_03.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-12",
+    "CT-28",
+    "CT-29",
+    "CT-33"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-05",
+    "RAG-06",
+    "RAG-16",
+    "RAG-18",
+    "RAG-19",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-052": {
+   "titulo": "Phase 03 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-051"
+   ],
+   "producao": [
+    "docs/adr/0003-rag-full-text.md",
+    "evals/datasets/phase_03.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_03_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-053": {
+   "titulo": "OpenAI embedding client with deterministic fake",
+   "tipo": "integração-externa",
+   "risco": "alto",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-052"
+   ],
+   "producao": [
+    "api/rag/embeddings.py"
+   ],
+   "teste": [
+    "tests/unit/api/rag/test_embeddings.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-1",
+    "CT-34"
+   ],
+   "ancora": [
+    "AS-8"
+   ],
+   "requisitos": [
+    "RAG-07",
+    "RAG-93",
+    "RAG-94"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-054": {
+   "titulo": "Chunk embedding column migration",
+   "tipo": "migration",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-052"
+   ],
+   "producao": [
+    "api/db/migrations/versions/0005_chunk_embeddings.py",
+    "api/rag/models.py"
+   ],
+   "teste": [
+    "tests/integration/api/rag/test_embedding_column.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-27"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-07"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-055": {
+   "titulo": "Embedding step in ingestion with failure isolation",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-053",
+    "TASK-054"
+   ],
+   "producao": [
+    "ingest/pipeline.py"
+   ],
+   "teste": [
+    "tests/integration/ingest/test_pipeline_embeddings.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-28",
+    "CT-34"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-07",
+    "RAG-93"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-056": {
+   "titulo": "Brute-force cosine vector search",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-053",
+    "TASK-054"
+   ],
+   "producao": [
+    "api/rag/vector_bruteforce.py"
+   ],
+   "teste": [
+    "tests/integration/api/rag/test_vector_bruteforce.py"
+   ],
+   "wiring": [
+    "api/rag/retriever.py"
+   ],
+   "contratos": [
+    "CT-30",
+    "CT-34",
+    "CT-35"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-08",
+    "RAG-17"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-057": {
+   "titulo": "Synthetic vector benchmark harness",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-054"
+   ],
+   "producao": [
+    "demos/bench.py"
+   ],
+   "teste": [
+    "tests/unit/demos/test_bench.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-12",
+    "CT-37"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-09",
+    "RAG-11"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-058": {
+   "titulo": "Phase 04 embeddings demo with recall and latency",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-055",
+    "TASK-056",
+    "TASK-057"
+   ],
+   "producao": [
+    "demos/demo_04_embeddings.py",
+    "demos/data/synonym_questions.jsonl"
+   ],
+   "teste": [
+    "tests/integration/demos/test_demo_04.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-12",
+    "CT-29",
+    "CT-35",
+    "CT-37"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-08",
+    "RAG-09",
+    "RAG-17",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-059": {
+   "titulo": "Phase 04 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-058"
+   ],
+   "producao": [
+    "docs/adr/0004-embeddings.md",
+    "evals/datasets/phase_04.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_04_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-060": {
+   "titulo": "HNSW index migration, bench table and reindex command",
+   "tipo": "migration",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-059"
+   ],
+   "producao": [
+    "api/db/migrations/versions/0006_hnsw_and_bench.py",
+    "ingest/reindex.py"
+   ],
+   "teste": [
+    "tests/integration/ingest/test_reindex.py"
+   ],
+   "wiring": [
+    "ingest/__main__.py"
+   ],
+   "contratos": [
+    "CT-28"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-10"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-061": {
+   "titulo": "HNSW vector search with configurable ef_search",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-060"
+   ],
+   "producao": [
+    "api/rag/vector_hnsw.py"
+   ],
+   "teste": [
+    "tests/integration/api/rag/test_vector_hnsw.py"
+   ],
+   "wiring": [
+    "api/rag/retriever.py"
+   ],
+   "contratos": [
+    "CT-30",
+    "CT-35"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-10"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-062": {
+   "titulo": "Hybrid search with Reciprocal Rank Fusion",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-061"
+   ],
+   "producao": [
+    "api/rag/hybrid.py"
+   ],
+   "teste": [
+    "tests/unit/api/rag/test_hybrid.py"
+   ],
+   "wiring": [
+    "api/rag/retriever.py"
+   ],
+   "contratos": [
+    "CT-29",
+    "CT-30",
+    "CT-35",
+    "CT-36"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-12"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-063": {
+   "titulo": "Phase 05 HNSW vs brute-force benchmark demo",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-062"
+   ],
+   "producao": [
+    "demos/demo_05_hnsw.py"
+   ],
+   "teste": [
+    "tests/integration/demos/test_demo_05.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-12",
+    "CT-35",
+    "CT-36",
+    "CT-37"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RAG-11",
+    "RAG-13",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-064": {
+   "titulo": "Phase 05 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-063"
+   ],
+   "producao": [
+    "docs/adr/0005-vector-database.md",
+    "evals/datasets/phase_05.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_05_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-065": {
+   "titulo": "Orders, subscriptions, refunds, audit and email outbox schema",
+   "tipo": "migration",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-064"
+   ],
+   "producao": [
+    "api/tools/models.py",
+    "api/db/migrations/versions/0007_commerce.py"
+   ],
+   "teste": [
+    "tests/integration/api/tools/test_commerce_models.py"
+   ],
+   "wiring": [
+    "api/tools/__init__.py",
+    "api/db/migrations/env.py",
+    "api.tools.models"
+   ],
+   "contratos": [
+    "CT-18",
+    "CT-38",
+    "CT-5"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TOOL-17",
+    "TOOL-19",
+    "TOOL-93",
+    "TOOL-06"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-066": {
+   "titulo": "Commerce seed data per persona",
+   "tipo": "crud-padrão",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-065"
+   ],
+   "producao": [
+    "api/seed/commerce.py"
+   ],
+   "teste": [
+    "tests/integration/api/seed/test_commerce_seed.py"
+   ],
+   "wiring": [
+    "api/seed/__main__.py"
+   ],
+   "contratos": [
+    "CT-23",
+    "CT-38"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TOOL-01",
+    "DEMO-06",
+    "TOOL-19",
+    "TOOL-98"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-067": {
+   "titulo": "Audit log recorder for side-effect tools",
+   "tipo": "crud-padrão",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-065"
+   ],
+   "producao": [
+    "api/tools/audit.py"
+   ],
+   "teste": [
+    "tests/integration/api/tools/test_audit.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-38",
+    "CT-39"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TOOL-06",
+    "TOOL-07",
+    "TOOL-08"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-068": {
+   "titulo": "Tool registry with Pydantic schemas and session-bound context",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-064"
+   ],
+   "producao": [
+    "api/tools/registry.py"
+   ],
+   "teste": [
+    "tests/unit/api/tools/test_registry.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-40",
+    "CT-6"
+   ],
+   "ancora": [
+    "AS-1"
+   ],
+   "requisitos": [
+    "TOOL-02",
+    "TOOL-03",
+    "TOOL-12",
+    "TOOL-94",
+    "AGT-91"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-069": {
+   "titulo": "Order tools with owner scoping and atomic cancellation",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-067",
+    "TASK-068"
+   ],
+   "producao": [
+    "api/tools/orders.py"
+   ],
+   "teste": [
+    "tests/integration/api/tools/test_orders.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-38",
+    "CT-39",
+    "CT-40",
+    "CT-42"
+   ],
+   "ancora": [
+    "AS-1"
+   ],
+   "requisitos": [
+    "TOOL-04",
+    "TOOL-06",
+    "TOOL-10",
+    "TOOL-17",
+    "TOOL-19",
+    "TOOL-90",
+    "TOOL-91",
+    "TOOL-92",
+    "TOOL-99",
+    "DEMO-91"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-070": {
+   "titulo": "Refund eligibility policy",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-065"
+   ],
+   "producao": [
+    "api/tools/refund_policy.py"
+   ],
+   "teste": [
+    "tests/unit/api/tools/test_refund_policy.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-38",
+    "CT-41"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TOOL-16",
+    "TOOL-98"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-071": {
+   "titulo": "Refund tools with server-side policy enforcement",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-069",
+    "TASK-070"
+   ],
+   "producao": [
+    "api/tools/refunds.py"
+   ],
+   "teste": [
+    "tests/integration/api/tools/test_refunds.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-38",
+    "CT-39",
+    "CT-40",
+    "CT-41",
+    "CT-42"
+   ],
+   "ancora": [
+    "AS-1"
+   ],
+   "requisitos": [
+    "TOOL-04",
+    "TOOL-07",
+    "TOOL-09",
+    "TOOL-15",
+    "TOOL-90",
+    "TOOL-93",
+    "DEMO-91"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-072": {
+   "titulo": "Subscription lookup and fake email tools",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-067",
+    "TASK-068"
+   ],
+   "producao": [
+    "api/tools/subscriptions.py",
+    "api/tools/email.py"
+   ],
+   "teste": [
+    "tests/integration/api/tools/test_subscriptions_email.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-38",
+    "CT-39",
+    "CT-40"
+   ],
+   "ancora": [
+    "AS-1"
+   ],
+   "requisitos": [
+    "TOOL-04",
+    "TOOL-08",
+    "TOOL-10",
+    "TOOL-18"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-073": {
+   "titulo": "Default registry with the seven tools",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-071",
+    "TASK-072"
+   ],
+   "producao": [
+    "api/tools/catalog.py"
+   ],
+   "teste": [
+    "tests/unit/api/tools/test_catalog.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-40",
+    "CT-42",
+    "CT-43"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TOOL-02",
+    "TOOL-12"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-074": {
+   "titulo": "Pending confirmation schema",
+   "tipo": "migration",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-065"
+   ],
+   "producao": [
+    "api/agent/models.py",
+    "api/db/migrations/versions/0008_pending_confirmations.py"
+   ],
+   "teste": [
+    "tests/integration/api/agent/test_confirmation_models.py"
+   ],
+   "wiring": [
+    "api/agent/__init__.py",
+    "api/db/migrations/env.py",
+    "api.agent.models"
+   ],
+   "contratos": [
+    "CT-5"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TOOL-05",
+    "TOOL-96"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-075": {
+   "titulo": "Confirmation store with owner checks and expiry",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-074"
+   ],
+   "producao": [
+    "api/agent/confirmations.py"
+   ],
+   "teste": [
+    "tests/integration/api/agent/test_confirmations.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-3",
+    "CT-44"
+   ],
+   "ancora": [
+    "AS-1"
+   ],
+   "requisitos": [
+    "TOOL-05",
+    "TOOL-13",
+    "TOOL-96",
+    "TOOL-97"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-076": {
+   "titulo": "Agent loop with tool execution and destructive-tool suspension",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-073",
+    "TASK-075"
+   ],
+   "producao": [
+    "api/agent/loop.py",
+    "api/agent/events.py"
+   ],
+   "teste": [
+    "tests/unit/api/agent/test_loop.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-31",
+    "CT-39",
+    "CT-40",
+    "CT-44",
+    "CT-45",
+    "CT-6"
+   ],
+   "ancora": [
+    "AS-1"
+   ],
+   "requisitos": [
+    "AGT-01",
+    "AGT-04",
+    "AGT-90",
+    "AGT-91",
+    "TOOL-05",
+    "TOOL-12",
+    "TOOL-13",
+    "TOOL-14"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-077": {
+   "titulo": "Chat service driven by the agent loop with confirmations",
+   "tipo": "lógica-negócio",
+   "risco": "alto",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-066",
+    "TASK-076"
+   ],
+   "producao": [
+    "api/chat/service.py"
+   ],
+   "teste": [
+    "tests/integration/api/chat/test_service_tools.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-15",
+    "CT-20",
+    "CT-43",
+    "CT-44",
+    "CT-45"
+   ],
+   "ancora": [
+    "AS-3"
+   ],
+   "requisitos": [
+    "TOOL-05",
+    "TOOL-11",
+    "TOOL-13",
+    "TOOL-96",
+    "TOOL-97"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-078": {
+   "titulo": "Confirmation endpoint",
+   "tipo": "crud-padrão",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-077"
+   ],
+   "producao": [
+    "api/chat/routes.py"
+   ],
+   "teste": [
+    "tests/integration/api/chat/test_confirmation_route.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-15",
+    "CT-16",
+    "CT-44",
+    "CT-46"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TOOL-05",
+    "TOOL-13"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-079": {
+   "titulo": "Web confirmation card and USD money pipe",
+   "tipo": "ui-puro",
+   "risco": "médio",
+   "perfil": "frontend",
+   "agente": "hm-designer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-064"
+   ],
+   "producao": [
+    "web/src/app/features/chat/confirmation-card.component.ts",
+    "web/src/app/shared/money.pipe.ts"
+   ],
+   "teste": [
+    "web/src/app/features/chat/confirmation-card.component.spec.ts"
+   ],
+   "wiring": [
+    "web/src/app/core/i18n/messages.ts",
+    "web/src/app/app.config.ts"
+   ],
+   "contratos": [
+    "CT-24",
+    "CT-26"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TOOL-05",
+    "TOOL-19"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-080": {
+   "titulo": "Chat page confirmation flow",
+   "tipo": "ui-puro",
+   "risco": "médio",
+   "perfil": "frontend",
+   "agente": "hm-designer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-078",
+    "TASK-079"
+   ],
+   "producao": [
+    "web/src/app/features/chat/chat.page.ts",
+    "web/src/app/features/chat/chat.page.html"
+   ],
+   "teste": [
+    "web/src/app/features/chat/chat.page.confirm.spec.ts"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-26",
+    "CT-46"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TOOL-05",
+    "TOOL-13"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-081": {
+   "titulo": "Phase 06 tool calling demo",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-077"
+   ],
+   "producao": [
+    "demos/demo_06_tools.py"
+   ],
+   "teste": [
+    "tests/integration/demos/test_demo_06.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-12",
+    "CT-15"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TOOL-11",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-082": {
+   "titulo": "Phase 06 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-080",
+    "TASK-081"
+   ],
+   "producao": [
+    "docs/adr/0006-tool-calling.md",
+    "evals/datasets/phase_06.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_06_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-083": {
+   "titulo": "Agent step, cost and repeated-call guards",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-082"
+   ],
+   "producao": [
+    "api/agent/guards.py"
+   ],
+   "teste": [
+    "tests/unit/api/agent/test_guards.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-47",
+    "CT-6",
+    "CT-7"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "AGT-02",
+    "AGT-03",
+    "AGT-05",
+    "AGT-09",
+    "AGT-10"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-084": {
+   "titulo": "Agent loop limits, repeat handling and limit termination message",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-083"
+   ],
+   "producao": [
+    "api/agent/loop.py"
+   ],
+   "teste": [
+    "tests/unit/api/agent/test_loop_limits.py",
+    "tests/integration/api/agent/test_multistep_trajectory.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-39",
+    "CT-4",
+    "CT-45",
+    "CT-47"
+   ],
+   "ancora": [
+    "AS-2"
+   ],
+   "requisitos": [
+    "AGT-02",
+    "AGT-03",
+    "AGT-05",
+    "AGT-06",
+    "AGT-08",
+    "AGT-09",
+    "AGT-10"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-085": {
+   "titulo": "Phase 07 multi-step agent benchmark demo",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-084"
+   ],
+   "producao": [
+    "demos/demo_07_agent.py",
+    "demos/data/phase07_tasks.jsonl"
+   ],
+   "teste": [
+    "tests/integration/demos/test_demo_07.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-12",
+    "CT-15"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "AGT-06",
+    "AGT-07",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-086": {
+   "titulo": "Phase 07 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-085"
+   ],
+   "producao": [
+    "docs/adr/0007-agent-loop.md",
+    "evals/datasets/phase_07.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_07_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-087": {
+   "titulo": "Triage schemas and prompt",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-086"
+   ],
+   "producao": [
+    "api/triage/schemas.py",
+    "prompts/triage.md"
+   ],
+   "teste": [
+    "tests/unit/api/triage/test_schemas.py"
+   ],
+   "wiring": [
+    "api/triage/__init__.py"
+   ],
+   "contratos": [
+    "CT-13",
+    "CT-48"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TRI-01",
+    "TRI-05",
+    "TRI-06",
+    "TRI-08",
+    "TRI-90"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-088": {
+   "titulo": "Triage service with schema enforcement and repair retries",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-087"
+   ],
+   "producao": [
+    "api/triage/service.py"
+   ],
+   "teste": [
+    "tests/unit/api/triage/test_service.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-3",
+    "CT-48",
+    "CT-6",
+    "CT-74",
+    "CT-9"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TRI-02",
+    "TRI-03",
+    "TRI-07",
+    "TRI-08"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-089": {
+   "titulo": "Triage endpoint for personas and operator key",
+   "tipo": "crud-padrão",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-088"
+   ],
+   "producao": [
+    "api/triage/routes.py"
+   ],
+   "teste": [
+    "tests/integration/api/triage/test_triage_route.py"
+   ],
+   "wiring": [
+    "api/main.py"
+   ],
+   "contratos": [
+    "CT-16",
+    "CT-48",
+    "CT-49",
+    "CT-74"
+   ],
+   "ancora": [
+    "AS-1"
+   ],
+   "requisitos": [
+    "TRI-01",
+    "TRI-05",
+    "TRI-07",
+    "TRI-90"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-090": {
+   "titulo": "Phase 08 structured output demo",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-088"
+   ],
+   "producao": [
+    "demos/demo_08_triage.py",
+    "demos/data/phase08_inputs.jsonl"
+   ],
+   "teste": [
+    "tests/unit/demos/test_demo_08.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-12",
+    "CT-74"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "TRI-04",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-091": {
+   "titulo": "Phase 08 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-089",
+    "TASK-090"
+   ],
+   "producao": [
+    "docs/adr/0008-structured-output.md",
+    "evals/datasets/phase_08.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_08_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-092": {
+   "titulo": "Anthropic adapter streaming support",
+   "tipo": "integração-externa",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-091"
+   ],
+   "producao": [
+    "api/llm/anthropic_adapter.py"
+   ],
+   "teste": [
+    "tests/unit/api/llm/test_anthropic_stream.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-6"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "STR-01"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-093": {
+   "titulo": "SSE event encoder",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-091"
+   ],
+   "producao": [
+    "api/streaming/events.py"
+   ],
+   "teste": [
+    "tests/unit/api/streaming/test_events.py"
+   ],
+   "wiring": [
+    "api/streaming/__init__.py"
+   ],
+   "contratos": [
+    "CT-45",
+    "CT-50"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "STR-01",
+    "STR-05",
+    "STR-90"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-094": {
+   "titulo": "Streaming agent loop with cancellation persistence",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-092",
+    "TASK-093"
+   ],
+   "producao": [
+    "api/agent/loop.py",
+    "api/chat/service.py"
+   ],
+   "teste": [
+    "tests/integration/api/chat/test_streaming_cancel.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-15",
+    "CT-20",
+    "CT-45",
+    "CT-6"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "STR-01",
+    "STR-03",
+    "STR-04",
+    "STR-05",
+    "STR-07",
+    "STR-91"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-095": {
+   "titulo": "Streaming chat and confirmation SSE endpoints",
+   "tipo": "crud-padrão",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-094"
+   ],
+   "producao": [
+    "api/chat/stream_routes.py"
+   ],
+   "teste": [
+    "tests/integration/api/chat/test_stream_routes.py"
+   ],
+   "wiring": [
+    "api/main.py"
+   ],
+   "contratos": [
+    "CT-15",
+    "CT-16",
+    "CT-45",
+    "CT-50",
+    "CT-76"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "STR-01",
+    "STR-04",
+    "STR-05",
+    "STR-90",
+    "STR-91"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-096": {
+   "titulo": "Web SSE client over fetch with abort",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "frontend",
+   "agente": "hm-designer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-095"
+   ],
+   "producao": [
+    "web/src/app/core/chat/chat-stream.service.ts",
+    "web/src/app/core/chat/sse-parser.ts"
+   ],
+   "teste": [
+    "web/src/app/core/chat/sse-parser.spec.ts"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-51",
+    "CT-76"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "STR-01",
+    "STR-04",
+    "STR-90"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-097": {
+   "titulo": "Streaming chat UI with step indicator, citations and cancel",
+   "tipo": "ui-puro",
+   "risco": "médio",
+   "perfil": "frontend",
+   "agente": "hm-designer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-096"
+   ],
+   "producao": [
+    "web/src/app/features/chat/chat.page.ts",
+    "web/src/app/features/chat/chat.page.html"
+   ],
+   "teste": [
+    "web/src/app/features/chat/chat.page.stream.spec.ts"
+   ],
+   "wiring": [
+    "web/src/app/core/i18n/messages.ts"
+   ],
+   "contratos": [
+    "CT-24",
+    "CT-51"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "STR-02",
+    "STR-03",
+    "STR-04",
+    "STR-90",
+    "STR-92",
+    "STR-08"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-098": {
+   "titulo": "Phase 09 streaming TTFT demo",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-095"
+   ],
+   "producao": [
+    "demos/demo_09_streaming.py"
+   ],
+   "teste": [
+    "tests/integration/demos/test_demo_09.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-12",
+    "CT-76"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "STR-06",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-099": {
+   "titulo": "Phase 09 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-097",
+    "TASK-098"
+   ],
+   "producao": [
+    "docs/adr/0009-streaming.md",
+    "evals/datasets/phase_09.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_09_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-100": {
+   "titulo": "Bilingual guardrail pattern library",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-099"
+   ],
+   "producao": [
+    "api/guardrails/patterns.py"
+   ],
+   "teste": [
+    "tests/unit/api/guardrails/test_patterns.py"
+   ],
+   "wiring": [
+    "api/guardrails/__init__.py"
+   ],
+   "contratos": [
+    "CT-52"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "GRD-09",
+    "GRD-90"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-101": {
+   "titulo": "PII detection and masking",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-099"
+   ],
+   "producao": [
+    "api/guardrails/pii.py"
+   ],
+   "teste": [
+    "tests/unit/api/guardrails/test_pii.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-53"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "GRD-07",
+    "OBS-91"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-102": {
+   "titulo": "Input guardrail with fail-closed behavior",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-100",
+    "TASK-101"
+   ],
+   "producao": [
+    "api/guardrails/input_guard.py"
+   ],
+   "teste": [
+    "tests/unit/api/guardrails/test_input_guard.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-52",
+    "CT-53",
+    "CT-54"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "GRD-01",
+    "GRD-06",
+    "GRD-93",
+    "GRD-90"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-103": {
+   "titulo": "Output guardrail with other-customer data, unfulfilled promise and topic checks",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-100",
+    "TASK-101"
+   ],
+   "producao": [
+    "api/guardrails/output_guard.py",
+    "prompts/topic_check.md"
+   ],
+   "teste": [
+    "tests/unit/api/guardrails/test_output_guard.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-13",
+    "CT-52",
+    "CT-55",
+    "CT-6"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "GRD-04",
+    "GRD-08",
+    "GRD-93"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-104": {
+   "titulo": "Sentence-buffered streaming output filter",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-103"
+   ],
+   "producao": [
+    "api/guardrails/stream_filter.py"
+   ],
+   "teste": [
+    "tests/unit/api/guardrails/test_stream_filter.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-55",
+    "CT-75"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "GRD-04",
+    "GRD-08"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-105": {
+   "titulo": "Untrusted retrieved content delimiters in prompts",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-099"
+   ],
+   "producao": [
+    "api/chat/prompt_builder.py"
+   ],
+   "teste": [
+    "tests/unit/api/chat/test_prompt_untrusted.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-31"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "GRD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-106": {
+   "titulo": "Ingestion injection scan with quarantine",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-100"
+   ],
+   "producao": [
+    "ingest/pipeline.py"
+   ],
+   "teste": [
+    "tests/integration/ingest/test_quarantine.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-28",
+    "CT-52"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "GRD-03",
+    "GRD-91"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-107": {
+   "titulo": "Guarded chat pipeline with masking and blocking",
+   "tipo": "lógica-negócio",
+   "risco": "alto",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-102",
+    "TASK-104",
+    "TASK-105",
+    "TASK-106"
+   ],
+   "producao": [
+    "api/chat/service.py",
+    "api/agent/loop.py"
+   ],
+   "teste": [
+    "tests/integration/api/chat/test_service_guardrails.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-15",
+    "CT-39",
+    "CT-45",
+    "CT-54",
+    "CT-55",
+    "CT-75"
+   ],
+   "ancora": [
+    "AS-3"
+   ],
+   "requisitos": [
+    "GRD-01",
+    "GRD-04",
+    "GRD-06",
+    "GRD-07",
+    "GRD-08",
+    "GRD-91",
+    "GRD-93",
+    "OBS-91"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-108": {
+   "titulo": "Phase 10 red-team suite and guardrail demo",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-107"
+   ],
+   "producao": [
+    "demos/demo_10_guardrails.py",
+    "evals/datasets/redteam.jsonl"
+   ],
+   "teste": [
+    "tests/integration/demos/test_demo_10.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10",
+    "CT-12",
+    "CT-15"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "GRD-05",
+    "GRD-09",
+    "GRD-90",
+    "GRD-91",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-109": {
+   "titulo": "Phase 10 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-108"
+   ],
+   "producao": [
+    "docs/adr/0010-guardrails.md",
+    "evals/datasets/phase_10.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_10_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-110": {
+   "titulo": "Cache-ordered prompt layout with stable prefix",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-109"
+   ],
+   "producao": [
+    "api/chat/prompt_builder.py"
+   ],
+   "teste": [
+    "tests/unit/api/chat/test_prompt_cache_layout.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-31"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CACHE-01",
+    "CACHE-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-111": {
+   "titulo": "Prompt cache markers and cache token accounting",
+   "tipo": "integração-externa",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-109"
+   ],
+   "producao": [
+    "api/llm/anthropic_adapter.py",
+    "api/llm/pricing.py"
+   ],
+   "teste": [
+    "tests/unit/api/llm/test_cache_accounting.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-6",
+    "CT-7"
+   ],
+   "ancora": [
+    "AS-2"
+   ],
+   "requisitos": [
+    "CACHE-01",
+    "CACHE-03",
+    "CACHE-90"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-112": {
+   "titulo": "Phase 11 prompt cache demo",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-110",
+    "TASK-111"
+   ],
+   "producao": [
+    "demos/demo_11_prompt_cache.py"
+   ],
+   "teste": [
+    "tests/integration/demos/test_demo_11.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-12",
+    "CT-15"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "CACHE-04",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-113": {
+   "titulo": "Phase 11 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-112"
+   ],
+   "producao": [
+    "docs/adr/0011-prompt-cache.md",
+    "evals/datasets/phase_11.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_11_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-114": {
+   "titulo": "OpenAI fallback adapter with tool format normalization",
+   "tipo": "integração-externa",
+   "risco": "alto",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-113"
+   ],
+   "producao": [
+    "api/llm/openai_adapter.py"
+   ],
+   "teste": [
+    "tests/unit/api/llm/test_openai_adapter.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-1",
+    "CT-6"
+   ],
+   "ancora": [
+    "AS-8"
+   ],
+   "requisitos": [
+    "RES-05",
+    "CACHE-90",
+    "TRI-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-115": {
+   "titulo": "Retry with exponential backoff, jitter and timeout",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-113"
+   ],
+   "producao": [
+    "api/llm/retry.py"
+   ],
+   "teste": [
+    "tests/unit/api/llm/test_retry.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-56",
+    "CT-6"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RES-01",
+    "RES-02",
+    "RES-03"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-116": {
+   "titulo": "Per-provider circuit breaker",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-115"
+   ],
+   "producao": [
+    "api/llm/circuit_breaker.py"
+   ],
+   "teste": [
+    "tests/unit/api/llm/test_circuit_breaker.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-57",
+    "CT-6"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RES-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-117": {
+   "titulo": "Chaos failure injection for the primary provider",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-115"
+   ],
+   "producao": [
+    "api/llm/chaos.py"
+   ],
+   "teste": [
+    "tests/unit/api/llm/test_chaos.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-1",
+    "CT-58",
+    "CT-6"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RES-07",
+    "DEMO-05"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-118": {
+   "titulo": "Provider fallback chain with first-token boundary",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-116"
+   ],
+   "producao": [
+    "api/llm/fallback.py"
+   ],
+   "teste": [
+    "tests/unit/api/llm/test_fallback.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-57",
+    "CT-59",
+    "CT-6"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RES-05",
+    "RES-91",
+    "RES-92",
+    "RES-93"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-119": {
+   "titulo": "Support ticket schema",
+   "tipo": "migration",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-113"
+   ],
+   "producao": [
+    "api/tickets/models.py",
+    "api/db/migrations/versions/0009_tickets.py"
+   ],
+   "teste": [
+    "tests/integration/api/tickets/test_ticket_models.py"
+   ],
+   "wiring": [
+    "api/tickets/__init__.py",
+    "api/db/migrations/env.py",
+    "api.tickets.models"
+   ],
+   "contratos": [
+    "CT-5",
+    "CT-60"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RES-06"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-120": {
+   "titulo": "Ticket opening service",
+   "tipo": "crud-padrão",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-119"
+   ],
+   "producao": [
+    "api/tickets/service.py"
+   ],
+   "teste": [
+    "tests/integration/api/tickets/test_ticket_service.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-5",
+    "CT-60",
+    "CT-61"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RES-06"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-121": {
+   "titulo": "Resilient client factory and degraded response",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-114",
+    "TASK-117",
+    "TASK-118",
+    "TASK-120"
+   ],
+   "producao": [
+    "api/llm/factory.py",
+    "api/chat/service.py"
+   ],
+   "teste": [
+    "tests/integration/api/chat/test_service_degraded.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-15",
+    "CT-56",
+    "CT-57",
+    "CT-58",
+    "CT-59",
+    "CT-61",
+    "CT-9"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RES-05",
+    "RES-06",
+    "RES-91",
+    "RES-92",
+    "RES-93"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-122": {
+   "titulo": "Phase 12 resilience demo under injected failures",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-121"
+   ],
+   "producao": [
+    "demos/demo_12_resilience.py"
+   ],
+   "teste": [
+    "tests/integration/demos/test_demo_12.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-12",
+    "CT-15"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "RES-08",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-123": {
+   "titulo": "Phase 12 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-122"
+   ],
+   "producao": [
+    "docs/adr/0012-retry-fallback.md",
+    "evals/datasets/phase_12.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_12_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-124": {
+   "titulo": "Core bilingual eval dataset of about 100 cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-123"
+   ],
+   "producao": [
+    "evals/datasets/core_en.jsonl",
+    "evals/datasets/core_pt.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_dataset_composition.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "EVAL-01",
+    "EVAL-08"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-125": {
+   "titulo": "Deterministic and LLM-as-judge graders",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-123"
+   ],
+   "producao": [
+    "evals/graders.py"
+   ],
+   "teste": [
+    "tests/unit/evals/test_graders.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10",
+    "CT-33"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "EVAL-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-126": {
+   "titulo": "In-process eval targets for chat and triage",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-124",
+    "TASK-125"
+   ],
+   "producao": [
+    "evals/targets.py"
+   ],
+   "teste": [
+    "tests/integration/evals/test_targets.py"
+   ],
+   "wiring": [
+    "evals/__main__.py"
+   ],
+   "contratos": [
+    "CT-10",
+    "CT-15",
+    "CT-74"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "EVAL-01",
+    "EVAL-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-127": {
+   "titulo": "Eval scoring gate against main-branch baseline",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-123"
+   ],
+   "producao": [
+    "evals/gate.py"
+   ],
+   "teste": [
+    "tests/unit/evals/test_gate.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "EVAL-05",
+    "EVAL-07",
+    "EVAL-90",
+    "EVAL-91",
+    "EVAL-92"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-128": {
+   "titulo": "Markdown eval report for PR comments",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-127"
+   ],
+   "producao": [
+    "evals/report.py"
+   ],
+   "teste": [
+    "tests/unit/evals/test_report.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "EVAL-03",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-129": {
+   "titulo": "Evals CI workflow with path filter and merge gate",
+   "tipo": "infra",
+   "risco": "médio",
+   "perfil": "infra",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-126",
+    "TASK-128"
+   ],
+   "producao": [
+    ".github/workflows/evals.yml"
+   ],
+   "teste": [
+    "tests/unit/infra/test_evals_workflow.py"
+   ],
+   "wiring": [],
+   "contratos": [],
+   "ancora": [],
+   "requisitos": [
+    "EVAL-03",
+    "EVAL-04",
+    "EVAL-05",
+    "EVAL-90"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-130": {
+   "titulo": "Phase 13 eval gate regression demo",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-129"
+   ],
+   "producao": [
+    "demos/demo_13_eval_gate.py"
+   ],
+   "teste": [
+    "tests/unit/demos/test_demo_13.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10",
+    "CT-12"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "EVAL-06",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-131": {
+   "titulo": "Phase 13 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-130"
+   ],
+   "producao": [
+    "docs/adr/0013-evals.md",
+    "evals/datasets/phase_13.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_13_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-132": {
+   "titulo": "OpenTelemetry tracing with Langfuse OTLP export",
+   "tipo": "integração-externa",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-131"
+   ],
+   "producao": [
+    "api/observability/tracing.py"
+   ],
+   "teste": [
+    "tests/unit/api/observability/test_tracing.py"
+   ],
+   "wiring": [
+    "api/main.py"
+   ],
+   "contratos": [
+    "CT-1",
+    "CT-2",
+    "CT-62"
+   ],
+   "ancora": [
+    "AS-8",
+    "AS-3"
+   ],
+   "requisitos": [
+    "OBS-01",
+    "OBS-91",
+    "OBS-93"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-133": {
+   "titulo": "Span instrumentation for guardrails, retrieval, LLM, tools and fallback",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-132"
+   ],
+   "producao": [
+    "api/llm/instrumented.py",
+    "api/rag/retriever.py"
+   ],
+   "teste": [
+    "tests/integration/api/observability/test_request_spans.py"
+   ],
+   "wiring": [
+    "api/tools/registry.py",
+    "api/llm/fallback.py",
+    "api/guardrails/input_guard.py",
+    "api/guardrails/output_guard.py"
+   ],
+   "contratos": [
+    "CT-62"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "OBS-01"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-134": {
+   "titulo": "Langfuse public API client for scores and trace deletion",
+   "tipo": "integração-externa",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-131"
+   ],
+   "producao": [
+    "api/observability/langfuse_api.py"
+   ],
+   "teste": [
+    "tests/unit/api/observability/test_langfuse_api.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-1",
+    "CT-63"
+   ],
+   "ancora": [
+    "AS-8",
+    "AS-5"
+   ],
+   "requisitos": [
+    "OBS-02",
+    "DEMO-10"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-135": {
+   "titulo": "Feedback schema",
+   "tipo": "migration",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-131"
+   ],
+   "producao": [
+    "api/feedback/models.py",
+    "api/db/migrations/versions/0010_feedback.py"
+   ],
+   "teste": [
+    "tests/integration/api/feedback/test_feedback_models.py"
+   ],
+   "wiring": [
+    "api/feedback/__init__.py",
+    "api/db/migrations/env.py",
+    "api.feedback.models"
+   ],
+   "contratos": [
+    "CT-19",
+    "CT-5",
+    "CT-64"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "OBS-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-136": {
+   "titulo": "Feedback endpoint with ownership check",
+   "tipo": "crud-padrão",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-134",
+    "TASK-135"
+   ],
+   "producao": [
+    "api/feedback/routes.py"
+   ],
+   "teste": [
+    "tests/integration/api/feedback/test_feedback_route.py"
+   ],
+   "wiring": [
+    "api/main.py"
+   ],
+   "contratos": [
+    "CT-16",
+    "CT-63",
+    "CT-64",
+    "CT-65"
+   ],
+   "ancora": [
+    "AS-1"
+   ],
+   "requisitos": [
+    "OBS-02",
+    "OBS-92"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-137": {
+   "titulo": "Web message meta with trace id and feedback buttons",
+   "tipo": "ui-puro",
+   "risco": "médio",
+   "perfil": "frontend",
+   "agente": "hm-designer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-136"
+   ],
+   "producao": [
+    "web/src/app/features/chat/message-meta.component.ts",
+    "web/src/app/core/chat/feedback-api.service.ts"
+   ],
+   "teste": [
+    "web/src/app/features/chat/message-meta.component.spec.ts"
+   ],
+   "wiring": [
+    "web/src/app/features/chat/chat.page.html",
+    "web/src/app/core/i18n/messages.ts"
+   ],
+   "contratos": [
+    "CT-24",
+    "CT-65"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "OBS-02",
+    "OBS-06"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-138": {
+   "titulo": "Local Langfuse compose profile and dashboard definition",
+   "tipo": "infra",
+   "risco": "médio",
+   "perfil": "infra",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-132"
+   ],
+   "producao": [
+    "docker-compose.yml",
+    "docs/observability.md"
+   ],
+   "teste": [
+    "tests/unit/infra/test_compose_observability.py"
+   ],
+   "wiring": [],
+   "contratos": [],
+   "ancora": [],
+   "requisitos": [
+    "OBS-03",
+    "OBS-07"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-139": {
+   "titulo": "Phase 14 trace-to-eval demo",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-133",
+    "TASK-136"
+   ],
+   "producao": [
+    "demos/demo_14_trace_to_eval.py"
+   ],
+   "teste": [
+    "tests/integration/demos/test_demo_14.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10",
+    "CT-12",
+    "CT-15"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "OBS-05",
+    "DOD-02"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-140": {
+   "titulo": "Phase 14 ADR and eval cases",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-137",
+    "TASK-138",
+    "TASK-139"
+   ],
+   "producao": [
+    "docs/adr/0014-observability.md",
+    "evals/datasets/phase_14.jsonl"
+   ],
+   "teste": [
+    "tests/unit/evals/test_phase_14_cases.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-10"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DOD-01",
+    "DOD-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-141": {
+   "titulo": "LLM call ledger, rate limit and maintenance schema",
+   "tipo": "migration",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-140"
+   ],
+   "producao": [
+    "api/limits/models.py",
+    "api/db/migrations/versions/0011_usage_and_maintenance.py"
+   ],
+   "teste": [
+    "tests/integration/api/limits/test_limits_models.py"
+   ],
+   "wiring": [
+    "api/limits/__init__.py",
+    "api/db/migrations/env.py",
+    "api.limits.models"
+   ],
+   "contratos": [
+    "CT-5",
+    "CT-66"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DEMO-02",
+    "DEMO-03"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-142": {
+   "titulo": "Persist estimated cost of every LLM call",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-141"
+   ],
+   "producao": [
+    "api/limits/ledger.py"
+   ],
+   "teste": [
+    "tests/integration/api/limits/test_ledger.py"
+   ],
+   "wiring": [
+    "api/llm/instrumented.py"
+   ],
+   "contratos": [
+    "CT-5",
+    "CT-66",
+    "CT-67",
+    "CT-7"
+   ],
+   "ancora": [
+    "AS-2"
+   ],
+   "requisitos": [
+    "DEMO-03"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-143": {
+   "titulo": "Daily spend cap with UTC reset",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-142"
+   ],
+   "producao": [
+    "api/limits/spend_cap.py"
+   ],
+   "teste": [
+    "tests/integration/api/limits/test_spend_cap.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-1",
+    "CT-66",
+    "CT-68"
+   ],
+   "ancora": [
+    "AS-2"
+   ],
+   "requisitos": [
+    "DEMO-03",
+    "DEMO-08",
+    "DEMO-09"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-144": {
+   "titulo": "Per-account hourly rate limiter",
+   "tipo": "lógica-negócio",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-141"
+   ],
+   "producao": [
+    "api/limits/rate_limit.py"
+   ],
+   "teste": [
+    "tests/integration/api/limits/test_rate_limit.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-1",
+    "CT-66",
+    "CT-69"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DEMO-02",
+    "DEMO-08",
+    "DEMO-09"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-145": {
+   "titulo": "Limit enforcement on chat, confirmation and triage endpoints",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-143",
+    "TASK-144"
+   ],
+   "producao": [
+    "api/limits/deps.py"
+   ],
+   "teste": [
+    "tests/integration/api/limits/test_limit_enforcement.py"
+   ],
+   "wiring": [
+    "api/chat/routes.py",
+    "api/chat/stream_routes.py",
+    "api/triage/routes.py"
+   ],
+   "contratos": [
+    "CT-3",
+    "CT-4",
+    "CT-68",
+    "CT-69",
+    "CT-70"
+   ],
+   "ancora": [
+    "AS-2"
+   ],
+   "requisitos": [
+    "DEMO-02",
+    "DEMO-03",
+    "DEMO-09"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-146": {
+   "titulo": "Daily demo restore of seed data and conversations",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-140"
+   ],
+   "producao": [
+    "api/maintenance/restore.py"
+   ],
+   "teste": [
+    "tests/integration/api/maintenance/test_restore.py"
+   ],
+   "wiring": [
+    "api/maintenance/__init__.py"
+   ],
+   "contratos": [
+    "CT-20",
+    "CT-23",
+    "CT-71"
+   ],
+   "ancora": [
+    "AS-5",
+    "AS-3"
+   ],
+   "requisitos": [
+    "DEMO-07",
+    "DEMO-12",
+    "DEMO-91"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-147": {
+   "titulo": "Seven-day retention purge including Langfuse traces",
+   "tipo": "lógica-negócio",
+   "risco": "crítico",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-146"
+   ],
+   "producao": [
+    "api/maintenance/purge.py"
+   ],
+   "teste": [
+    "tests/integration/api/maintenance/test_purge.py"
+   ],
+   "wiring": [],
+   "contratos": [
+    "CT-5",
+    "CT-63",
+    "CT-72"
+   ],
+   "ancora": [
+    "AS-5",
+    "AS-3"
+   ],
+   "requisitos": [
+    "DEMO-10",
+    "DEMO-12"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-148": {
+   "titulo": "In-process daily maintenance scheduler with advisory lock",
+   "tipo": "infra",
+   "risco": "médio",
+   "perfil": "backend",
+   "agente": "hm-engineer",
+   "testes": "integration",
+   "depende_de": [
+    "TASK-147"
+   ],
+   "producao": [
+    "api/maintenance/scheduler.py"
+   ],
+   "teste": [
+    "tests/integration/api/maintenance/test_scheduler.py"
+   ],
+   "wiring": [
+    "api/main.py"
+   ],
+   "contratos": [
+    "CT-71",
+    "CT-72",
+    "CT-73"
+   ],
+   "ancora": [],
+   "requisitos": [
+    "DEMO-07",
+    "DEMO-10"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-149": {
+   "titulo": "Render deployment blueprint for the public demo",
+   "tipo": "infra",
+   "risco": "alto",
+   "perfil": "infra",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-140"
+   ],
+   "producao": [
+    "render.yaml"
+   ],
+   "teste": [
+    "tests/unit/infra/test_render_blueprint.py"
+   ],
+   "wiring": [],
+   "contratos": [],
+   "ancora": [
+    "AS-8"
+   ],
+   "requisitos": [
+    "DEMO-05",
+    "DEMO-04"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  },
+  "TASK-150": {
+   "titulo": "Final English README with demo, phases table and results",
+   "tipo": "config",
+   "risco": "médio",
+   "perfil": "infra",
+   "agente": "hm-engineer",
+   "testes": "unit",
+   "depende_de": [
+    "TASK-145",
+    "TASK-148",
+    "TASK-149"
+   ],
+   "producao": [
+    "README.md"
+   ],
+   "teste": [
+    "tests/unit/docs/test_readme.py"
+   ],
+   "wiring": [
+    "docs/img/architecture.svg",
+    "docs/img/demo.gif"
+   ],
+   "contratos": [],
+   "ancora": [],
+   "requisitos": [
+    "DOD-03",
+    "DOD-04",
+    "DEMO-04",
+    "DEMO-06",
+    "STR-06"
+   ],
+   "gate": null,
+   "paralelo_seguro": true
+  }
+ },
+ "ondas": [
+  {
+   "n": 1,
+   "tasks": [
+    "TASK-001",
+    "TASK-012"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 2,
+   "tasks": [
+    "TASK-002",
+    "TASK-004",
+    "TASK-005",
+    "TASK-011"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G2": {
+     "CT-1": [
+      "TASK-002",
+      "TASK-004",
+      "TASK-011"
+     ]
+    }
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 3,
+   "tasks": [
+    "TASK-006"
+   ],
+   "risco_max": "alto",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-006"
+    ]
+   },
+   "perfil_qa_previsto": "RIGOROSO"
+  },
+  {
+   "n": 4,
+   "tasks": [
+    "TASK-007"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-007"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 5,
+   "tasks": [
+    "TASK-003",
+    "TASK-008",
+    "TASK-014",
+    "TASK-016"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 6,
+   "tasks": [
+    "TASK-009",
+    "TASK-010",
+    "TASK-018"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G2": {
+     "CT-2": [
+      "TASK-009",
+      "TASK-010"
+     ],
+     "CT-1": [
+      "TASK-009",
+      "TASK-010"
+     ]
+    }
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 7,
+   "tasks": [
+    "TASK-013",
+    "TASK-017",
+    "TASK-019"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G2": {
+     "CT-9": [
+      "TASK-017",
+      "TASK-019"
+     ],
+     "CT-1": [
+      "TASK-017",
+      "TASK-019"
+     ]
+    }
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 8,
+   "tasks": [
+    "TASK-015",
+    "TASK-020"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G3": [
+     "P1: Fundação mensurável"
+    ]
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 9,
+   "tasks": [
+    "TASK-021"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 10,
+   "tasks": [
+    "TASK-022"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 11,
+   "tasks": [
+    "TASK-023",
+    "TASK-029",
+    "TASK-033",
+    "TASK-036"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 12,
+   "tasks": [
+    "TASK-025"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-025"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 13,
+   "tasks": [
+    "TASK-026"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-026"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 14,
+   "tasks": [
+    "TASK-024",
+    "TASK-027",
+    "TASK-034"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G2": {
+     "CT-18": [
+      "TASK-024",
+      "TASK-027"
+     ]
+    }
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 15,
+   "tasks": [
+    "TASK-028"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-028"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 16,
+   "tasks": [
+    "TASK-030",
+    "TASK-035"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 17,
+   "tasks": [
+    "TASK-031"
+   ],
+   "risco_max": "alto",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-031"
+    ]
+   },
+   "perfil_qa_previsto": "RIGOROSO"
+  },
+  {
+   "n": 18,
+   "tasks": [
+    "TASK-032",
+    "TASK-037"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 19,
+   "tasks": [
+    "TASK-038"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G3": [
+     "P1: Conversa e memória"
+    ]
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 20,
+   "tasks": [
+    "TASK-039"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 21,
+   "tasks": [
+    "TASK-040",
+    "TASK-043",
+    "TASK-044",
+    "TASK-050"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 22,
+   "tasks": [
+    "TASK-041",
+    "TASK-046"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 23,
+   "tasks": [
+    "TASK-042",
+    "TASK-047"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 24,
+   "tasks": [
+    "TASK-045",
+    "TASK-048"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 25,
+   "tasks": [
+    "TASK-049"
+   ],
+   "risco_max": "alto",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-049"
+    ]
+   },
+   "perfil_qa_previsto": "RIGOROSO"
+  },
+  {
+   "n": 26,
+   "tasks": [
+    "TASK-051"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 27,
+   "tasks": [
+    "TASK-052"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 28,
+   "tasks": [
+    "TASK-053"
+   ],
+   "risco_max": "alto",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-053"
+    ]
+   },
+   "perfil_qa_previsto": "RIGOROSO"
+  },
+  {
+   "n": 29,
+   "tasks": [
+    "TASK-054"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 30,
+   "tasks": [
+    "TASK-055",
+    "TASK-056",
+    "TASK-057"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G2": {
+     "CT-34": [
+      "TASK-055",
+      "TASK-056"
+     ]
+    }
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 31,
+   "tasks": [
+    "TASK-058"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 32,
+   "tasks": [
+    "TASK-059"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 33,
+   "tasks": [
+    "TASK-060"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 34,
+   "tasks": [
+    "TASK-061"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 35,
+   "tasks": [
+    "TASK-062"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 36,
+   "tasks": [
+    "TASK-063"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G3": [
+     "P1: Respostas fundamentadas"
+    ]
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 37,
+   "tasks": [
+    "TASK-064"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 38,
+   "tasks": [
+    "TASK-068"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-068"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 39,
+   "tasks": [
+    "TASK-065",
+    "TASK-079"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 40,
+   "tasks": [
+    "TASK-066",
+    "TASK-067",
+    "TASK-070",
+    "TASK-074"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G2": {
+     "CT-38": [
+      "TASK-066",
+      "TASK-067",
+      "TASK-070"
+     ]
+    }
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 41,
+   "tasks": [
+    "TASK-069"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-069"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 42,
+   "tasks": [
+    "TASK-071"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-071"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 43,
+   "tasks": [
+    "TASK-072"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-072"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 44,
+   "tasks": [
+    "TASK-075"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-075"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 45,
+   "tasks": [
+    "TASK-073"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 46,
+   "tasks": [
+    "TASK-076"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-076"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 47,
+   "tasks": [
+    "TASK-077"
+   ],
+   "risco_max": "alto",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-077"
+    ]
+   },
+   "perfil_qa_previsto": "RIGOROSO"
+  },
+  {
+   "n": 48,
+   "tasks": [
+    "TASK-078",
+    "TASK-081"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G2": {
+     "CT-15": [
+      "TASK-078",
+      "TASK-081"
+     ]
+    }
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 49,
+   "tasks": [
+    "TASK-080"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 50,
+   "tasks": [
+    "TASK-082"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 51,
+   "tasks": [
+    "TASK-083"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 52,
+   "tasks": [
+    "TASK-084"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-084"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 53,
+   "tasks": [
+    "TASK-085"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 54,
+   "tasks": [
+    "TASK-086"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 55,
+   "tasks": [
+    "TASK-087"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 56,
+   "tasks": [
+    "TASK-088"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 57,
+   "tasks": [
+    "TASK-089"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-089"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 58,
+   "tasks": [
+    "TASK-090"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 59,
+   "tasks": [
+    "TASK-091"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 60,
+   "tasks": [
+    "TASK-092",
+    "TASK-093"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 61,
+   "tasks": [
+    "TASK-094"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 62,
+   "tasks": [
+    "TASK-095"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 63,
+   "tasks": [
+    "TASK-096",
+    "TASK-098"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G2": {
+     "CT-76": [
+      "TASK-096",
+      "TASK-098"
+     ]
+    }
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 64,
+   "tasks": [
+    "TASK-097"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 65,
+   "tasks": [
+    "TASK-099"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 66,
+   "tasks": [
+    "TASK-100",
+    "TASK-101",
+    "TASK-105"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 67,
+   "tasks": [
+    "TASK-102",
+    "TASK-103",
+    "TASK-106"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G2": {
+     "CT-52": [
+      "TASK-102",
+      "TASK-103",
+      "TASK-106"
+     ]
+    }
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 68,
+   "tasks": [
+    "TASK-104"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 69,
+   "tasks": [
+    "TASK-107"
+   ],
+   "risco_max": "alto",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-107"
+    ]
+   },
+   "perfil_qa_previsto": "RIGOROSO"
+  },
+  {
+   "n": 70,
+   "tasks": [
+    "TASK-108"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 71,
+   "tasks": [
+    "TASK-109"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 72,
+   "tasks": [
+    "TASK-111"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-111"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 73,
+   "tasks": [
+    "TASK-110"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 74,
+   "tasks": [
+    "TASK-112"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 75,
+   "tasks": [
+    "TASK-113"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 76,
+   "tasks": [
+    "TASK-114"
+   ],
+   "risco_max": "alto",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-114"
+    ]
+   },
+   "perfil_qa_previsto": "RIGOROSO"
+  },
+  {
+   "n": 77,
+   "tasks": [
+    "TASK-115",
+    "TASK-119"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 78,
+   "tasks": [
+    "TASK-116",
+    "TASK-117",
+    "TASK-120"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G2": {
+     "CT-6": [
+      "TASK-116",
+      "TASK-117"
+     ]
+    }
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 79,
+   "tasks": [
+    "TASK-118"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 80,
+   "tasks": [
+    "TASK-121"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 81,
+   "tasks": [
+    "TASK-122"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 82,
+   "tasks": [
+    "TASK-123"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 83,
+   "tasks": [
+    "TASK-124",
+    "TASK-125",
+    "TASK-127"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G2": {
+     "CT-10": [
+      "TASK-124",
+      "TASK-125",
+      "TASK-127"
+     ]
+    }
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 84,
+   "tasks": [
+    "TASK-126",
+    "TASK-128"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G2": {
+     "CT-10": [
+      "TASK-126",
+      "TASK-128"
+     ]
+    }
+   },
+   "perfil_qa_previsto": "PADRAO"
+  },
+  {
+   "n": 85,
+   "tasks": [
+    "TASK-129"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 86,
+   "tasks": [
+    "TASK-130"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 87,
+   "tasks": [
+    "TASK-131"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 88,
+   "tasks": [
+    "TASK-132"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-132"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 89,
+   "tasks": [
+    "TASK-134"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-134"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 90,
+   "tasks": [
+    "TASK-133",
+    "TASK-135",
+    "TASK-138"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 91,
+   "tasks": [
+    "TASK-136"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-136"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 92,
+   "tasks": [
+    "TASK-137",
+    "TASK-139"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 93,
+   "tasks": [
+    "TASK-140"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 94,
+   "tasks": [
+    "TASK-146"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-146"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 95,
+   "tasks": [
+    "TASK-147"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-147"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 96,
+   "tasks": [
+    "TASK-149"
+   ],
+   "risco_max": "alto",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-149"
+    ]
+   },
+   "perfil_qa_previsto": "RIGOROSO"
+  },
+  {
+   "n": 97,
+   "tasks": [
+    "TASK-141",
+    "TASK-148"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 98,
+   "tasks": [
+    "TASK-142"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-142"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 99,
+   "tasks": [
+    "TASK-143"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-143"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 100,
+   "tasks": [
+    "TASK-144"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {},
+   "perfil_qa_previsto": null
+  },
+  {
+   "n": 101,
+   "tasks": [
+    "TASK-145"
+   ],
+   "risco_max": "crítico",
+   "gatilhos_previstos": {
+    "G1": [
+     "TASK-145"
+    ]
+   },
+   "perfil_qa_previsto": "EXAUSTIVO"
+  },
+  {
+   "n": 102,
+   "tasks": [
+    "TASK-150"
+   ],
+   "risco_max": "médio",
+   "gatilhos_previstos": {
+    "G3": [
+     "P1: Definição de pronto e vitrine"
+    ]
+   },
+   "perfil_qa_previsto": "PADRAO"
+  }
+ ]
+}
