@@ -277,6 +277,13 @@ Etapa: gate de clarificação do `/generate-plan` (após spec-writer, 1ª passad
 - **Escolha**: A
 - **Observações do humano**: —
 
+### LAC-42 — Códigos de erro para rota e método desconhecidos
+- **Data**: 2026-11-08 (etapa: orchestrate, fase 00)
+- **Opções apresentadas**: A) acrescentar `NOT_FOUND` (404) e `METHOD_NOT_ALLOWED` (405) ao catálogo 8.3 B) usar `INTERNAL_ERROR` para 404/405 de framework
+- **Recomendação do orquestrador**: A
+- **Escolha**: A
+- **Observações do humano**: —
+
 ## Premissas assumidas (lacunas não bloqueantes)
 
 ### LAC-18 — Bônus da fase 5 no escopo?
