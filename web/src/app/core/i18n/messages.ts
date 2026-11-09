@@ -52,6 +52,16 @@ const en = {
   'chat.status.limit_reached': 'Incomplete',
   'chat.status.awaiting_confirmation': 'Awaiting confirmation',
 
+  'confirm.question': 'Confirm: {action} {target}?',
+  'confirm.amount': 'Amount: {amount}',
+  'confirm.accept': 'Confirm',
+  'confirm.refuse': 'Refuse',
+  'confirm.sending': 'Sending your decision…',
+
+  'tools.cancel_order': 'cancel order',
+  'tools.issue_refund': 'issue refund',
+  'tools.unknown': 'run action',
+
   'errors.VALIDATION_ERROR': 'The message is empty or a field is invalid.',
   'errors.MESSAGE_TOO_LONG': 'The message is longer than {max} characters.',
   'errors.AUTH_REQUIRED': 'Please sign in with a test account.',
@@ -118,6 +128,16 @@ const pt: Record<MessageKey, string> = {
   'chat.status.degraded': 'Resposta degradada',
   'chat.status.limit_reached': 'Incompleta',
   'chat.status.awaiting_confirmation': 'Aguardando confirmação',
+
+  'confirm.question': 'Confirmar: {action} {target}?',
+  'confirm.amount': 'Valor: {amount}',
+  'confirm.accept': 'Confirmar',
+  'confirm.refuse': 'Recusar',
+  'confirm.sending': 'Enviando sua decisão…',
+
+  'tools.cancel_order': 'cancelar pedido',
+  'tools.issue_refund': 'emitir reembolso',
+  'tools.unknown': 'executar ação',
 
   'errors.VALIDATION_ERROR': 'A mensagem está vazia ou algum campo é inválido.',
   'errors.MESSAGE_TOO_LONG': 'A mensagem passou de {max} caracteres.',

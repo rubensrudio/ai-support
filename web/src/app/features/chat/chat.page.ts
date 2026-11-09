@@ -2,6 +2,8 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
+  afterNextRender,
   afterRenderEffect,
   computed,
   inject,
@@ -12,11 +14,18 @@ import { Router } from '@angular/router';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { ChatApiService } from '../../core/chat/chat-api.service';
-import { ChatResponse, ChatStatus, MAX_MESSAGE_CHARS } from '../../core/chat/chat.models';
+import {
+  ChatResponse,
+  ChatStatus,
+  ConfirmationDecision,
+  ConfirmationPrompt,
+  MAX_MESSAGE_CHARS,
+} from '../../core/chat/chat.models';
 import { ErrorMessage, apiErrorMessage, toApiError } from '../../core/http/api-error';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { LangSwitchComponent } from '../../core/i18n/lang-switch.component';
 import { MessageKey } from '../../core/i18n/messages';
+import { ConfirmationCardComponent } from './confirmation-card.component';
 
 interface ChatTurn {
   id: number;
@@ -27,6 +36,18 @@ interface ChatTurn {
 
 type Validation = 'empty' | 'tooLong' | null;
 
+/** Confirmation errors after which the action can no longer be decided (CT-46). */
+const TERMINAL_CONFIRMATION_ERRORS: ReadonlySet<string> = new Set([
+  'CONFIRMATION_NOT_FOUND',
+  'CONFIRMATION_NOT_PENDING',
+]);
+
+/** A destructive tool waiting for the customer's decision, anchored to the turn that asked. */
+interface PendingConfirmation {
+  turnId: number;
+  prompt: ConfirmationPrompt;
+}
+
 const STATUS_LABELS: Partial<Record<ChatStatus, MessageKey>> = {
   blocked: 'chat.status.blocked',
   degraded: 'chat.status.degraded',
@@ -34,10 +55,13 @@ const STATUS_LABELS: Partial<Record<ChatStatus, MessageKey>> = {
   awaiting_confirmation: 'chat.status.awaiting_confirmation',
 };
 
-/** Conversation screen (CHAT-01): thread, validated input (CHAT-90/91) and sign-out. */
+/**
+ * Conversation screen (CHAT-01): thread, validated input (CHAT-90/91), sign-out and the
+ * confirmation of destructive tools (TOOL-05/13), which locks the composer until decided.
+ */
 @Component({
   selector: 'app-chat-page',
-  imports: [LangSwitchComponent],
+  imports: [LangSwitchComponent, ConfirmationCardComponent],
   templateUrl: './chat.page.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -46,6 +70,7 @@ export class ChatPage {
   private readonly api = inject(ChatApiService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
 
   private readonly threadEl = viewChild<ElementRef<HTMLElement>>('thread');
   private readonly inputEl = viewChild<ElementRef<HTMLTextAreaElement>>('input');
@@ -54,11 +79,15 @@ export class ChatPage {
   protected readonly turns = signal<readonly ChatTurn[]>([]);
   protected readonly draft = signal('');
   protected readonly sending = signal(false);
+  protected readonly deciding = signal(false);
+  protected readonly pending = signal<PendingConfirmation | null>(null);
   private readonly conversationId = signal<string | null>(null);
   private readonly submitted = signal(false);
   private readonly error = signal<ErrorMessage | null>(null);
   private nextId = 1;
 
+  /** No new message while an answer or a confirmation decision is outstanding. */
+  protected readonly locked = computed(() => this.sending() || this.pending() !== null);
   protected readonly length = computed(() => this.draft().length);
   protected readonly tooLong = computed(() => this.length() > MAX_MESSAGE_CHARS);
   protected readonly validation = computed<Validation>(() => {
@@ -85,6 +114,7 @@ export class ChatPage {
     afterRenderEffect(() => {
       this.turns();
       this.sending();
+      this.pending();
       const el = this.threadEl()?.nativeElement;
       if (el) el.scrollTop = el.scrollHeight;
     });
@@ -113,7 +143,7 @@ export class ChatPage {
   }
 
   private send(): void {
-    if (this.sending()) return;
+    if (this.locked()) return;
     this.submitted.set(true);
     if (this.validation() !== null) return;
 
@@ -132,11 +162,50 @@ export class ChatPage {
       });
   }
 
+  protected onDecision(decision: ConfirmationDecision): void {
+    const pending = this.pending();
+    if (!pending || this.sending()) return;
+    this.error.set(null);
+    this.sending.set(true);
+    this.deciding.set(true);
+
+    this.api.confirm(pending.prompt.id, decision).subscribe({
+      next: (res) => this.onReply(res),
+      error: (err: unknown) => this.onDecisionError(err),
+    });
+  }
+
   private onReply(res: ChatResponse): void {
     if (res.conversation_id) this.conversationId.set(res.conversation_id);
-    this.push('assistant', res.content, res.status);
+    const turn = this.push('assistant', res.content, res.status);
+    const prompt = res.status === 'awaiting_confirmation' ? res.confirmation : null;
+    this.pending.set(prompt ? { turnId: turn.id, prompt } : null);
     this.sending.set(false);
-    this.focusInput();
+    this.deciding.set(false);
+    // The confirmation card takes the focus itself; otherwise go back to the composer.
+    if (!prompt) this.focusInput();
+  }
+
+  /**
+   * Only a confirmation the server no longer holds (404/409) or an expired session drops the
+   * card. On 5xx or network failures the server rolled back and the confirmation is still
+   * pending, so the card stays (buttons enabled again) and the composer stays locked.
+   */
+  private onDecisionError(err: unknown): void {
+    this.sending.set(false);
+    this.deciding.set(false);
+    const apiError = toApiError(err);
+    if (apiError.code === 'AUTH_REQUIRED') {
+      this.pending.set(null);
+      this.auth.clear();
+      void this.router.navigateByUrl('/login');
+      return;
+    }
+    this.error.set(apiErrorMessage(apiError, this.i18n.lang()));
+    if (TERMINAL_CONFIRMATION_ERRORS.has(apiError.code)) {
+      this.pending.set(null);
+      this.focusInput();
+    }
   }
 
   private onError(err: unknown, failed: ChatTurn): void {
@@ -176,7 +245,8 @@ export class ChatPage {
     if (el) el.value = value;
   }
 
+  /** Runs after the next render, once the textarea is no longer `disabled`. */
   private focusInput(): void {
-    this.inputEl()?.nativeElement.focus();
+    afterNextRender(() => this.inputEl()?.nativeElement.focus(), { injector: this.injector });
   }
 }

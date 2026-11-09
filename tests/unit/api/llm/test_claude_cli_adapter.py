@@ -235,15 +235,17 @@ async def test_timeout_and_missing_binary_propagate() -> None:
         await ClaudeCliAdapter(_settings(), runner=missing).complete(_request())
 
 
-async def test_tools_are_rejected_before_running_the_cli() -> None:
-    runner = _ok(SUCCESS)
+async def test_tools_are_emulated_with_a_json_schema_answer() -> None:
+    # Phase 6: tool calling is emulated (details in test_claude_cli_tools.py).
+    answer = {"text": "", "tool_calls": [{"name": "get_order", "arguments": {"order_id": 1}}]}
+    runner = _ok({**SUCCESS, "result": "", "structured_output": answer})
     request = _request(tools=[ToolSpec("get_order", "Get an order", {"type": "object"})])
 
-    with pytest.raises(LLMError, match="tool calling is not supported") as info:
-        await ClaudeCliAdapter(_settings(), runner=runner).complete(request)
+    response = await ClaudeCliAdapter(_settings(), runner=runner).complete(request)
 
-    assert info.value.recoverable is False
-    assert runner.calls == []
+    assert "--json-schema" in runner.calls[0]["argv"]
+    assert _flag(runner.calls[0]["argv"], "--tools") == ""
+    assert [call.name for call in response.tool_calls] == ["get_order"]
 
 
 def test_stream_is_not_implemented() -> None:

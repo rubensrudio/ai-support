@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal
 
-from api.tools.models import Order
+from api.tools.models import Order, OrderStatus
 
 REFUND_WINDOW = timedelta(days=7)
 ReasonCode = Literal[
@@ -29,4 +29,12 @@ class RefundEligibility:
 
 
 def evaluate_refund(order: Order, now: datetime) -> RefundEligibility:
-    raise NotImplementedError("TASK-070")
+    """Decide eligibility from the order alone; the amount is always the full total."""
+    amount = order.total_cents
+    if order.status == OrderStatus.CANCELLED and order.shipped_at is None:
+        return RefundEligibility(True, "cancelled_before_shipment", amount)
+    if order.status == OrderStatus.DELIVERED and order.delivered_at is not None:
+        if now - order.delivered_at <= REFUND_WINDOW:
+            return RefundEligibility(True, "delivered_within_7_days", amount)
+        return RefundEligibility(False, "delivered_over_7_days", amount)
+    return RefundEligibility(False, "not_delivered_yet", amount)

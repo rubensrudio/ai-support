@@ -9,21 +9,32 @@ CONFIRMATION_NOT_PENDING, 409)` (an expired pending row is marked `expired`). TT
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.agent.models import PendingConfirmation
 from api.config import Settings
+from api.errors import AtlasError, ErrorCode
 
 Decision = Literal["confirm", "refuse"]
 
+_STATUS_BY_DECISION: dict[Decision, str] = {"confirm": "confirmed", "refuse": "refused"}
+
 
 class ConfirmationStore:
+    """Persists pending confirmations; it flushes but never commits (the caller owns the
+    transaction)."""
+
     def __init__(self, session: AsyncSession, settings: Settings) -> None:
         self.session = session
         self.settings = settings
+
+    @property
+    def _ttl(self) -> timedelta:
+        return timedelta(minutes=self.settings.confirmation_ttl_minutes)
 
     async def create(
         self,
@@ -35,7 +46,19 @@ class ConfirmationStore:
         agent_state: dict[str, Any],
         trace_id: str,
     ) -> PendingConfirmation:
-        raise NotImplementedError("TASK-075")
+        row = PendingConfirmation(
+            conversation_id=conversation_id,
+            customer_id=customer_id,
+            tool=tool,
+            arguments=arguments,
+            agent_state=agent_state,
+            status="pending",
+            trace_id=trace_id,
+        )
+        self.session.add(row)
+        await self.session.flush()
+        await self.session.refresh(row)
+        return row
 
     async def resolve(
         self,
@@ -44,10 +67,71 @@ class ConfirmationStore:
         decision: Decision,
         now: datetime | None = None,
     ) -> PendingConfirmation:
-        raise NotImplementedError("TASK-075")
+        current = now or datetime.now(UTC)
+        statement = (
+            update(PendingConfirmation)
+            .where(
+                PendingConfirmation.id == confirmation_id,
+                PendingConfirmation.customer_id == customer_id,
+                PendingConfirmation.status == "pending",
+                PendingConfirmation.created_at > current - self._ttl,
+            )
+            .values(status=_STATUS_BY_DECISION[decision], resolved_at=current)
+            .returning(PendingConfirmation)
+            .execution_options(populate_existing=True, synchronize_session=False)
+        )
+        resolved = (await self.session.execute(statement)).scalars().one_or_none()
+        if resolved is not None:
+            return resolved
+
+        # Nothing changed: find out why, scoped to the owner so another customer's id is
+        # indistinguishable from a missing one.
+        lookup = (
+            select(PendingConfirmation)
+            .where(
+                PendingConfirmation.id == confirmation_id,
+                PendingConfirmation.customer_id == customer_id,
+            )
+            .execution_options(populate_existing=True)
+        )
+        existing = (await self.session.execute(lookup)).scalars().one_or_none()
+        if existing is None:
+            raise AtlasError(ErrorCode.CONFIRMATION_NOT_FOUND, 404)
+        if existing.status == "pending" and existing.created_at <= current - self._ttl:
+            await self.session.execute(
+                update(PendingConfirmation)
+                .where(
+                    PendingConfirmation.id == confirmation_id,
+                    PendingConfirmation.status == "pending",
+                )
+                .values(status="expired", resolved_at=current)
+                .execution_options(synchronize_session=False)
+            )
+            await self.session.flush()
+        raise AtlasError(ErrorCode.CONFIRMATION_NOT_PENDING, 409)
 
     async def refuse_pending(self, conversation_id: uuid.UUID) -> list[PendingConfirmation]:
-        raise NotImplementedError("TASK-075")
+        statement = (
+            update(PendingConfirmation)
+            .where(
+                PendingConfirmation.conversation_id == conversation_id,
+                PendingConfirmation.status == "pending",
+            )
+            .values(status="refused", resolved_at=datetime.now(UTC))
+            .returning(PendingConfirmation)
+            .execution_options(populate_existing=True, synchronize_session=False)
+        )
+        return list((await self.session.execute(statement)).scalars().all())
 
     async def expire_stale(self, now: datetime) -> int:
-        raise NotImplementedError("TASK-075")
+        statement = (
+            update(PendingConfirmation)
+            .where(
+                PendingConfirmation.status == "pending",
+                PendingConfirmation.created_at <= now - self._ttl,
+            )
+            .values(status="expired", resolved_at=now)
+            .returning(PendingConfirmation.id)
+            .execution_options(synchronize_session=False)
+        )
+        return len((await self.session.execute(statement)).scalars().all())
