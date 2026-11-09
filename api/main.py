@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from api.auth.routes import auth_router
 from api.chat.routes import chat_router
 from api.chat.service import close_embedder
+from api.chat.stream_routes import stream_router
 from api.config import get_settings
 from api.db.engine import dispose_engine
 from api.errors import install_error_handlers
@@ -34,6 +35,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(chat_router)
+    app.include_router(stream_router)
     app.include_router(triage_router)
     return app
 
