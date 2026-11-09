@@ -364,10 +364,3 @@ async def test_cli_writes_the_report_and_exits_1_when_a_document_failed(
     )
     assert ok_run.returncode == 0, ok_run.stderr
     assert json.loads(report_path.read_text(encoding="utf-8"))["totals"]["failed"] == 0
-
-
-def test_cli_reindex_hnsw_is_not_available_yet(migrated_database: str) -> None:
-    result = _cli("reindex-hnsw", database_url=migrated_database)
-
-    assert result.returncode == 0
-    assert "not available until phase 05" in result.stdout

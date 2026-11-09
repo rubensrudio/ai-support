@@ -15,7 +15,9 @@ documents, to switch embedders without mixing vectors; it cannot be combined wit
 failing document and the ones after it are untouched, the ones before it already have the new
 vectors, so run `--reembed` again once the provider is back.
 
-`python -m ingest reindex-hnsw` arrives in phase 05.
+`python -m ingest reindex-hnsw` drops and recreates the chunks HNSW index with the current
+`ATLAS_HNSW_M` and `ATLAS_HNSW_EF_CONSTRUCTION` (RAG-10) and prints the new definition; exit 0 on
+success, 1 on a database error (generic message on stderr, no SQL).
 """
 
 import argparse
@@ -24,11 +26,14 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from api.config import MissingConfigError, Settings, get_settings
 from api.db.engine import dispose_engine, get_sessionmaker
 from api.observability.logging import configure_logging
 from api.rag.embeddings import build_embedder
 from ingest.pipeline import ManifestError, ReembedAborted, ingest_corpus
+from ingest.reindex import reindex_hnsw
 from ingest.report import IngestReport, write_report
 
 EXIT_OK = 0
@@ -52,7 +57,10 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="recompute the embedding of every chunk (e.g. after switching embedders)",
     )
-    commands.add_parser("reindex-hnsw", help="rebuild the HNSW index (phase 05)")
+    commands.add_parser(
+        "reindex-hnsw",
+        help="rebuild the chunks HNSW index with the configured m and ef_construction",
+    )
     return parser
 
 
@@ -104,13 +112,29 @@ def _run(corpus: Path, report_path: Path, skip_embeddings: bool, reembed: bool =
     return EXIT_FAILED if report.has_failures else EXIT_OK
 
 
+async def _reindex() -> str:
+    try:
+        return await reindex_hnsw(get_sessionmaker(), get_settings())
+    finally:
+        await dispose_engine()
+
+
+def _reindex_hnsw() -> int:
+    try:
+        indexdef = asyncio.run(_reindex())
+    except (SQLAlchemyError, OSError):
+        print("error: could not rebuild the HNSW index (database error)", file=sys.stderr)
+        return EXIT_FAILED
+    print(f"rebuilt {indexdef}")
+    return EXIT_OK
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     configure_logging(get_settings())
     if args.command == "run":
         return _run(args.corpus, args.report, args.skip_embeddings, args.reembed)
-    print("reindex-hnsw is not available until phase 05")
-    return EXIT_OK
+    return _reindex_hnsw()
 
 
 if __name__ == "__main__":

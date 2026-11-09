@@ -50,8 +50,22 @@ logged and never committed: `.env` is git-ignored and excluded from the Docker i
 | `ATLAS_QA_PASSWORD` | automated screen QA | Secret. The persona password. |
 
 To run everything offline (tests, smoke evals, demos with `--provider fake`), set
-`ATLAS_LLM_PROVIDER=fake`; no key is needed then. The remaining variables in `.env.example`
-already have working defaults (database URL, timeouts, retrieval and agent limits, demo limits).
+`ATLAS_LLM_PROVIDER=fake` and `ATLAS_EMBEDDING_PROVIDER=fake`; no key is needed then. The
+default retrieval mode is `hybrid` (full-text + HNSW), which embeds every question: with
+`ATLAS_EMBEDDING_PROVIDER=openai` and no `OPENAI_API_KEY`, the chat answers that the knowledge
+base is unavailable. Use the fake embedder or `ATLAS_RETRIEVAL_MODE=fulltext` without a key. The
+remaining variables in `.env.example` already have working defaults (database URL, timeouts,
+retrieval and agent limits, demo limits).
+
+## Knowledge base
+
+- `python -m ingest run` ingests `corpus/` (chunks, full-text and embeddings). It stops before
+  touching the database when the OpenAI embedder has no key; `--skip-embeddings` ingests without
+  vectors and `--reembed` recomputes every vector after switching embedders
+  ([ADR 0004](docs/adr/0004-embeddings.md)).
+- `python -m ingest reindex-hnsw` rebuilds the HNSW index with the current `ATLAS_HNSW_M` and
+  `ATLAS_HNSW_EF_CONSTRUCTION`; it locks the `chunks` table while it runs
+  ([ADR 0005](docs/adr/0005-vector-database.md)).
 
 ## LLM providers
 
