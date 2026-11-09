@@ -1,0 +1,79 @@
+<main class="auth-page">
+  <header class="topbar">
+    <span class="brand">
+      <span class="brand__mark" aria-hidden="true">A</span>
+      <span class="brand__name">{{ i18n.t('app.name') }}</span>
+    </span>
+    <app-lang-switch />
+  </header>
+
+  <div class="auth-page__body">
+    <section class="card auth-card" aria-labelledby="login-title">
+      <h1 id="login-title" class="auth-card__title">{{ i18n.t('login.title') }}</h1>
+      <p class="muted">{{ i18n.t('login.subtitle') }}</p>
+
+      <form class="form" novalidate (submit)="onSubmit($event)">
+        <div class="field">
+          <label class="field__label" for="login-username">{{ i18n.t('login.username') }}</label>
+          <input
+            #usernameInput
+            id="login-username"
+            class="input"
+            name="username"
+            type="text"
+            autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
+            required
+            [value]="username()"
+            [attr.aria-describedby]="errorText() ? 'login-error' : null"
+            (input)="onInput('username', $event)"
+          />
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="login-password">{{ i18n.t('login.password') }}</label>
+          <input
+            #passwordInput
+            id="login-password"
+            class="input"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+            [value]="password()"
+            [attr.aria-describedby]="errorText() ? 'login-error' : null"
+            (input)="onInput('password', $event)"
+          />
+        </div>
+
+        <div id="login-error" class="form__error" aria-live="assertive">
+          @if (errorText()) {
+            <p role="alert">{{ errorText() }}</p>
+          }
+        </div>
+
+        <button class="button button--primary" type="submit" [disabled]="submitting()">
+          {{ submitting() ? i18n.t('login.submitting') : i18n.t('login.submit') }}
+        </button>
+      </form>
+    </section>
+
+    <section class="card personas" aria-labelledby="personas-title">
+      <h2 id="personas-title" class="personas__title">{{ i18n.t('login.personas.title') }}</h2>
+      <p class="muted">{{ i18n.t('login.personas.intro') }}</p>
+      <ul class="personas__list">
+        @for (persona of personas; track persona.username) {
+          <li>
+            <button type="button" class="persona" (click)="usePersona(persona.username)">
+              <code class="persona__username">{{ persona.username }}</code>
+              <span class="persona__name">{{ i18n.t(persona.name) }}</span>
+              <span class="persona__lang muted">{{ i18n.t(persona.language) }}</span>
+            </button>
+          </li>
+        }
+      </ul>
+      <p class="personas__note">{{ i18n.t('login.personas.password') }}</p>
+    </section>
+  </div>
+</main>

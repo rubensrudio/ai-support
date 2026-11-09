@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python (lint, typecheck, tests)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: atlas
+          POSTGRES_PASSWORD: atlas
+          POSTGRES_DB: atlas
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U atlas -d atlas"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ATLAS_APP_ENV: ci
+      ATLAS_DATABASE_URL: postgresql+psycopg://atlas:atlas@localhost:5432/atlas
+      ATLAS_LLM_PROVIDER: fake
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.15"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check . --output-format=concise
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Typecheck
+        run: uv run mypy
+      - name: Tests
+        run: uv run pytest -q
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-junit
+          path: reports/junit.xml
+          if-no-files-found: ignore
+
+  web:
+    name: Web (lint, tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npx ng lint
+      - name: Tests
+        run: npx ng test --watch=false
+      - name: Build
+        run: npx ng build
+
+  evals-smoke:
+    name: Evals (smoke)
+    runs-on: ubuntu-latest
+    env:
+      ATLAS_APP_ENV: ci
+      ATLAS_LLM_PROVIDER: fake
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.15"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen --no-dev
+      - name: Run smoke evals
+        run: >-
+          uv run python -m evals run
+          --dataset evals/datasets/smoke.jsonl
+          --target echo
+          --out reports/eval-smoke.json
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-smoke
+          path: reports/eval-smoke.json
+          if-no-files-found: ignore

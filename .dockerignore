@@ -1,0 +1,22 @@
+# Local state, secrets and anything the API image does not need.
+.git
+.github
+.env
+.env.*
+!.env.example
+.venv
+.orchestrate
+.specs
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.angular
+**/__pycache__
+**/*.pyc
+reports
+dist
+web/node_modules
+web
+tests
+Dockerfile
+docker-compose.yml

@@ -1,0 +1,2 @@
+{"id": "smoke-en-001", "phase": 0, "category": "smoke", "language": "en", "input": {"text": "Where is my order?"}, "expected": {"text": "Where is my order?"}, "grader": "exact_match"}
+{"id": "smoke-pt-001", "phase": 0, "category": "smoke", "language": "pt", "input": {"text": "Onde está meu pedido?"}, "expected": {"text": "Onde está meu pedido?"}, "grader": "exact_match"}

@@ -1,0 +1,30 @@
+{"id": "q03-en-01", "language": "en", "question": "How do I end my subscription?", "in_corpus": true}
+{"id": "q03-en-02", "language": "en", "question": "What is the refund policy?", "in_corpus": true}
+{"id": "q03-en-03", "language": "en", "question": "How do I reset my password?", "in_corpus": true}
+{"id": "q03-en-04", "language": "en", "question": "How do I change my payment method?", "in_corpus": true}
+{"id": "q03-en-05", "language": "en", "question": "Where can I download my invoices?", "in_corpus": true}
+{"id": "q03-en-06", "language": "en", "question": "How do I update my delivery address?", "in_corpus": true}
+{"id": "q03-en-07", "language": "en", "question": "Can I pause my subscription?", "in_corpus": true}
+{"id": "q03-en-08", "language": "en", "question": "How do I upgrade my plan?", "in_corpus": true}
+{"id": "q03-en-09", "language": "en", "question": "How do I add a user to my account?", "in_corpus": true}
+{"id": "q03-en-10", "language": "en", "question": "How do I contact support?", "in_corpus": true}
+{"id": "q03-en-11", "language": "en", "question": "Is there an Assinaflow office in Antarctica?", "in_corpus": false}
+{"id": "q03-en-12", "language": "en", "question": "Who won the 1994 World Cup?", "in_corpus": false}
+{"id": "q03-en-13", "language": "en", "question": "What is the weather like in Lisbon today?", "in_corpus": false}
+{"id": "q03-en-14", "language": "en", "question": "Can you recommend a good pizza recipe?", "in_corpus": false}
+{"id": "q03-en-15", "language": "en", "question": "How many employees does Assinaflow have?", "in_corpus": false}
+{"id": "q03-pt-01", "language": "pt", "question": "Como encerrar minha assinatura?", "in_corpus": true}
+{"id": "q03-pt-02", "language": "pt", "question": "Qual é a política de reembolso?", "in_corpus": true}
+{"id": "q03-pt-03", "language": "pt", "question": "Como redefinir minha senha?", "in_corpus": true}
+{"id": "q03-pt-04", "language": "pt", "question": "Como alterar a forma de pagamento?", "in_corpus": true}
+{"id": "q03-pt-05", "language": "pt", "question": "Onde baixar minhas faturas?", "in_corpus": true}
+{"id": "q03-pt-06", "language": "pt", "question": "Como atualizar meu endereço de entrega?", "in_corpus": true}
+{"id": "q03-pt-07", "language": "pt", "question": "Posso pausar minha assinatura?", "in_corpus": true}
+{"id": "q03-pt-08", "language": "pt", "question": "Como fazer upgrade do meu plano?", "in_corpus": true}
+{"id": "q03-pt-09", "language": "pt", "question": "Como adicionar um usuário à minha conta?", "in_corpus": true}
+{"id": "q03-pt-10", "language": "pt", "question": "Como falar com o suporte?", "in_corpus": true}
+{"id": "q03-pt-11", "language": "pt", "question": "A Assinaflow tem escritório na Antártida?", "in_corpus": false}
+{"id": "q03-pt-12", "language": "pt", "question": "Quem ganhou a Copa do Mundo de 1994?", "in_corpus": false}
+{"id": "q03-pt-13", "language": "pt", "question": "Como está o tempo em Lisboa hoje?", "in_corpus": false}
+{"id": "q03-pt-14", "language": "pt", "question": "Você recomenda uma boa receita de pizza?", "in_corpus": false}
+{"id": "q03-pt-15", "language": "pt", "question": "Quantos funcionários a Assinaflow tem?", "in_corpus": false}

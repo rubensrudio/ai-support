@@ -1,0 +1,4 @@
+{"id": "phase01-tone-en-001", "phase": 1, "category": "tone", "language": "en", "input": {"message": "Hi! Can you help me with my order?", "ui_language": "en"}, "expected": {"status": "completed", "language": "en"}, "grader": "exact_match"}
+{"id": "phase01-tone-en-002", "phase": 1, "category": "tone", "language": "en", "input": {"message": "What is your return policy?", "ui_language": "en"}, "expected": {"status": "completed", "language": "en"}, "grader": "exact_match"}
+{"id": "phase01-tone-pt-001", "phase": 1, "category": "tone", "language": "pt", "input": {"message": "Olá! Pode me ajudar com meu pedido?", "ui_language": "pt"}, "expected": {"status": "completed", "language": "pt"}, "grader": "exact_match"}
+{"id": "phase01-tone-pt-002", "phase": 1, "category": "tone", "language": "pt", "input": {"message": "Qual é a política de devolução?", "ui_language": "pt"}, "expected": {"status": "completed", "language": "pt"}, "grader": "exact_match"}

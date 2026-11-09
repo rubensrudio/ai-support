@@ -1,0 +1,9 @@
+{
+  "_comment": "USD per million tokens, per model: {\"<model>\": {\"input\": n, \"output\": n, \"cache_read\": n, \"cache_write\": n}}. All four fields are required and must be >= 0. input excludes cache tokens, which are priced only by cache_read/cache_write. The Operator adds an entry for every model they configure (ATLAS_PRIMARY_MODEL, ATLAS_SECONDARY_MODEL, ATLAS_GUARDRAIL_MODEL, ATLAS_JUDGE_MODEL), copying the provider's current price list (DA-15). A model without an entry raises UnknownModelPricing; cost is never assumed to be zero. Keys starting with _ are ignored. Path is set by ATLAS_PRICING_FILE.",
+  "fake-model": {
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_write": 0
+  }
+}
