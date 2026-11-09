@@ -4,9 +4,14 @@ Closed enums and `extra='forbid'` on both models. The request carries only the t
 `conversation_id` (TRI-05). The text must have 1..`ATLAS_MAX_MESSAGE_CHARS` characters and
 cannot be only whitespace (TRI-90). `resumo` is written in the language of the input (TRI-08);
 the enum values are always the fixed Portuguese codes below.
+
+`triage_output_schema()` is the schema sent to providers as native structured output: the
+`TriageResult` JSON schema without the keywords that providers' strict modes reject
+(`UNSUPPORTED_SCHEMA_KEYWORDS`, e.g. `minLength`). Those rules still hold because every answer
+is validated with `TriageResult` afterwards.
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -41,3 +46,47 @@ class TriageResult(BaseModel):
     sentimento: Sentimento
     precisa_humano: bool
     resumo: str = Field(min_length=1)
+
+
+# Conservative union of the keywords rejected by Anthropic structured outputs and OpenAI strict
+# mode (some, like `pattern`, are accepted by one of them; dropping them is harmless because
+# `TriageResult` validates every answer anyway).
+UNSUPPORTED_SCHEMA_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "minLength",
+        "maxLength",
+        "pattern",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "minItems",
+        "maxItems",
+        "uniqueItems",
+        "minProperties",
+        "maxProperties",
+    }
+)
+
+
+def _strip_unsupported(node: Any) -> Any:
+    """Drop unsupported keywords from schema nodes; never from the field names of `properties`
+    or `$defs`, which are names, not keywords."""
+    if isinstance(node, dict):
+        stripped: dict[str, Any] = {}
+        for key, value in node.items():
+            if key in ("properties", "$defs") and isinstance(value, dict):
+                stripped[key] = {name: _strip_unsupported(sub) for name, sub in value.items()}
+            elif key not in UNSUPPORTED_SCHEMA_KEYWORDS:
+                stripped[key] = _strip_unsupported(value)
+        return stripped
+    if isinstance(node, list):
+        return [_strip_unsupported(item) for item in node]
+    return node
+
+
+def triage_output_schema() -> dict[str, Any]:
+    """`TriageResult` JSON schema safe for providers' native structured output."""
+    schema: dict[str, Any] = _strip_unsupported(TriageResult.model_json_schema())
+    return schema
