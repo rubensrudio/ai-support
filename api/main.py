@@ -14,6 +14,7 @@ from api.errors import install_error_handlers
 from api.health import router as health_router
 from api.observability.logging import configure_logging
 from api.observability.middleware import TraceIdMiddleware
+from api.triage.routes import triage_router
 
 
 @asynccontextmanager
@@ -33,6 +34,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(chat_router)
+    app.include_router(triage_router)
     return app
 
 
