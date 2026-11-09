@@ -53,6 +53,38 @@ To run everything offline (tests, smoke evals, demos with `--provider fake`), se
 `ATLAS_LLM_PROVIDER=fake`; no key is needed then. The remaining variables in `.env.example`
 already have working defaults (database URL, timeouts, retrieval and agent limits, demo limits).
 
+## LLM providers
+
+`ATLAS_LLM_PROVIDER` picks the adapter behind the `LLMClient` interface
+([ADR 0001](docs/adr/0001-llm-api-call.md)).
+
+| Provider | Requires | When to use |
+|---|---|---|
+| `anthropic` | `ANTHROPIC_API_KEY` and `ATLAS_PRIMARY_MODEL` | Default. The app, the public demo and every measured demo run. |
+| `fake` | nothing | Tests, CI and demos with `--provider fake`: scripted answers, no network. |
+| `claude_cli` | Claude Code installed and logged in | Local manual testing with your subscription only. |
+| `codex_cli` | Codex CLI installed and logged in | Local manual testing with your subscription only. |
+
+The subscription CLI providers need no API key, but their cost is not measured
+(`cost_usd` is logged empty), prompt caching cannot be controlled, tool calling is not supported
+yet and latency is higher. Never use them in CI, for `docs/results.md` numbers or in the public
+demo. Optional settings for them (defaults in parentheses):
+
+- `ATLAS_CLAUDE_CLI_PATH` (`claude`): path of the Claude Code binary.
+- `ATLAS_CODEX_CLI_PATH` (`codex`): path of the Codex CLI binary.
+- `ATLAS_CLI_TIMEOUT_SECONDS` (`120`): the CLI process is killed after this many seconds.
+
+### Phase 01 demo
+
+`demo_01` sends "My name is Rubens" and then "What is my name?" (and the same in Portuguese) as
+two independent calls, prints the answers and `name_remembered=<bool>`, and records the result in
+the phase 01 row of `docs/results.md`:
+
+```bash
+uv run python -m demos.demo_01_stateless --provider fake --results /tmp/results.md  # offline
+uv run python -m demos.demo_01_stateless --provider real   # configured provider, docs/results.md
+```
+
 ## Development
 
 Requirements: `uv`, Node.js 24, Docker.

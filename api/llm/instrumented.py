@@ -7,6 +7,9 @@ estimated context tokens, provider token usage, estimated cost and latency.
 Cost is never silently zero (AS-2):
 - a model missing from the pricing table keeps the response and logs `cost_usd=None` with
   `pricing_error="unknown_model"` plus a `pricing_missing` event;
+- a subscription CLI provider (`claude_cli`, `codex_cli`, LAC-43) has no per-token price: the
+  pricing table is not consulted and a call logs `cost_usd=None` with
+  `pricing_error="subscription"`;
 - a failed call logs `cost_usd=0` only when the provider rejected the request (non-recoverable
   4xx); any other failure (timeout, connection, 5xx, unknown) may have been billed, so it logs
   `cost_usd=None` with `pricing_error="cost_unknown"`.
@@ -17,6 +20,7 @@ import time
 from collections.abc import AsyncIterator
 from decimal import Decimal
 
+from api.config import SUBSCRIPTION_PROVIDERS
 from api.llm.client import (
     LLMClient,
     LLMError,
@@ -33,6 +37,7 @@ OUTCOME_OK = "ok"
 OUTCOME_ERROR = "error"
 OUTCOME_CANCELLED = "cancelled"
 COST_UNKNOWN = "cost_unknown"
+SUBSCRIPTION = "subscription"
 
 
 def _is_rejection(exc: BaseException) -> bool:
@@ -100,6 +105,8 @@ class InstrumentedLLMClient:
                     await aclose()
 
     def _cost(self, usage: Usage) -> tuple[Decimal | None, str | None]:
+        if self.provider in SUBSCRIPTION_PROVIDERS:
+            return None, SUBSCRIPTION
         try:
             return estimate_cost(self.model, usage), None
         except UnknownModelPricing:

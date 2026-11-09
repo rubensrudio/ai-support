@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from api.chat.routes import chat_router
 from api.config import get_settings
 from api.db.engine import dispose_engine
 from api.errors import install_error_handlers
@@ -27,6 +28,7 @@ def create_app() -> FastAPI:
     app.add_middleware(TraceIdMiddleware)
     install_error_handlers(app)
     app.include_router(health_router)
+    app.include_router(chat_router)
     return app
 
 

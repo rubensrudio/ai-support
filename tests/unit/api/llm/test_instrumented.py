@@ -449,3 +449,44 @@ async def test_complete_cancelled_logs_exactly_one_call_and_reraises(
     assert _field(logs[0], "pricing_error") == "cost_unknown"
     assert _field(logs[0], "input_tokens") == 0
     assert _field(logs[0], "context_tokens") > 0
+
+
+@pytest.mark.parametrize("provider", ["claude_cli", "codex_cli"])
+async def test_subscription_provider_skips_pricing(
+    provider: str, records: list[logging.LogRecord], fixed_price: list[tuple[str, Usage]]
+) -> None:
+    client = InstrumentedLLMClient(
+        FakeLLMClient(script=[_response()]), model="claude-subscription", provider=provider
+    )
+
+    response = await client.complete(_request())
+
+    assert response == _response()
+    assert fixed_price == []
+    assert _events(records, "pricing_missing") == []
+    logs = _events(records, "llm_call")
+    assert len(logs) == 1
+    assert _field(logs[0], "provider") == provider
+    assert _field(logs[0], "outcome") == "ok"
+    assert _field(logs[0], "input_tokens") == 100
+    assert _field(logs[0], "cost_usd") is None
+    assert _field(logs[0], "pricing_error") == "subscription"
+
+
+async def test_subscription_provider_error_keeps_cost_unknown(
+    records: list[logging.LogRecord],
+) -> None:
+    client = InstrumentedLLMClient(
+        FakeLLMClient(script=[LLMTimeoutError("timed out")]),
+        model="codex-subscription",
+        provider="codex_cli",
+    )
+
+    with pytest.raises(LLMTimeoutError):
+        await client.complete(_request())
+
+    logs = _events(records, "llm_call")
+    assert len(logs) == 1
+    assert _field(logs[0], "outcome") == "error"
+    assert _field(logs[0], "cost_usd") is None
+    assert _field(logs[0], "pricing_error") == "cost_unknown"
