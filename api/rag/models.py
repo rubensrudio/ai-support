@@ -1,12 +1,15 @@
 """Knowledge-base documents and chunks (CT-27, migration 0004, DA-13).
 
 `chunks.tsv` is a generated column: `to_tsvector(ts_config, content)`, where `ts_config` is
-`english` or `portuguese` according to the chunk language, indexed with GIN. The `embedding`
-column arrives in phase 04 (migration 0005).
+`english` or `portuguese` according to the chunk language, indexed with GIN.
+`chunks.embedding` (migration 0005, RAG-07) is a nullable `vector(ATLAS_EMBEDDING_DIMENSIONS)`;
+the dimension is read from the settings when this module is imported. No vector index in phase
+04 (the HNSW index is phase 05).
 """
 
 from datetime import datetime
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -22,12 +25,14 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import REGCONFIG, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
+from api.config import get_settings
 from api.db.engine import Base
 
 DOC_TYPES = ("manual", "policy", "faq")
 DOC_FORMATS = ("md", "pdf")
 DOC_STATUSES = ("indexed", "quarantined", "failed")
 TS_CONFIGS = {"en": "english", "pt": "portuguese"}
+EMBEDDING_DIMENSIONS = get_settings().embedding_dimensions
 
 
 class Document(Base):
@@ -79,4 +84,7 @@ class Chunk(Base):
     ts_config: Mapped[str] = mapped_column(REGCONFIG, nullable=False)
     tsv: Mapped[str] = mapped_column(
         TSVECTOR, Computed("to_tsvector(ts_config, content)", persisted=True)
+    )
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(EMBEDDING_DIMENSIONS), nullable=True
     )

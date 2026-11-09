@@ -34,6 +34,9 @@ async def factory(migrated_database: str) -> AsyncIterator[async_sessionmaker[As
 @pytest.fixture
 def isolated_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(retriever_module, "_SEARCHERS", dict(retriever_module._SEARCHERS))
+    monkeypatch.setattr(
+        retriever_module, "_VECTOR_SEARCHERS", dict(retriever_module._VECTOR_SEARCHERS)
+    )
 
 
 async def _seed(

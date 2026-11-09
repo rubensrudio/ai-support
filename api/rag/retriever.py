@@ -1,9 +1,11 @@
 """Retriever facade with pluggable retrieval modes (CT-30, DA-16).
 
 Modes come from `api.config.RetrievalMode` (`none`, `fulltext`, `vector_bruteforce`,
-`vector_hnsw`, `hybrid`); phase 03 implements `none` and `fulltext`, later phases register the
-others with `register_mode`. Any search failure becomes `RetrievalUnavailable` (RAG-94); an
-empty index yields `[]` (RAG-90).
+`vector_hnsw`, `hybrid`). Text searchers (`register_mode`) receive the question; vector
+searchers (`register_vector_mode`, CT-35) receive the question embedding, computed here with the
+retriever's `embedder` (one `embed([query])` call per retrieval). Phase 03 registers `fulltext`,
+phase 04 `vector_bruteforce`. A vector mode without an embedder, an `EmbeddingError` and any
+search failure all become `RetrievalUnavailable` (RAG-94); an empty index yields `[]` (RAG-90).
 """
 
 from collections.abc import Awaitable, Callable
@@ -16,8 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from api.config import RetrievalMode, Settings
 from api.messages import Lang
 from api.observability.logging import log_event
+from api.rag.embeddings import EmbeddingClient
 from api.rag.fulltext import ScoredChunk, search_fulltext
 from api.rag.models import Chunk, Document
+from api.rag.vector_bruteforce import search_bruteforce
 
 
 @dataclass(frozen=True)
@@ -37,26 +41,43 @@ class RetrievalUnavailable(RuntimeError):
 
 
 Searcher = Callable[[AsyncSession, str, Lang, int], Awaitable[list[ScoredChunk]]]
+VectorSearcher = Callable[[AsyncSession, list[float], Lang, int], Awaitable[list[ScoredChunk]]]
 
-# `none` never reaches the registry: it returns `[]` without opening a session.
+# `none` never reaches the registries: it returns `[]` without opening a session.
 _SEARCHERS: dict[RetrievalMode, Searcher] = {}
+_VECTOR_SEARCHERS: dict[RetrievalMode, VectorSearcher] = {}
 
 
 def register_mode(mode: RetrievalMode, searcher: Searcher) -> None:
-    """Register (or replace) the searcher used for `mode`."""
+    """Register (or replace) the text searcher used for `mode`."""
     if mode == "none":
         raise ValueError("Mode 'none' does not take a searcher")
+    _VECTOR_SEARCHERS.pop(mode, None)
     _SEARCHERS[mode] = searcher
 
 
+def register_vector_mode(mode: RetrievalMode, searcher: VectorSearcher) -> None:
+    """Register (or replace) the vector searcher used for `mode` (CT-35)."""
+    if mode == "none":
+        raise ValueError("Mode 'none' does not take a searcher")
+    _SEARCHERS.pop(mode, None)
+    _VECTOR_SEARCHERS[mode] = searcher
+
+
+def is_vector_mode(mode: RetrievalMode) -> bool:
+    """True when `mode` needs a query embedding (an embedder must be configured)."""
+    return mode in _VECTOR_SEARCHERS
+
+
 register_mode("fulltext", search_fulltext)
+register_vector_mode("vector_bruteforce", search_bruteforce)
 
 
 class Retriever:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
-        embedder: object | None,
+        embedder: EmbeddingClient | None,
         settings: Settings,
     ) -> None:
         self.session_factory = session_factory
@@ -76,9 +97,17 @@ class Retriever:
         if mode == "none" or limit <= 0:
             return []
         searcher = _SEARCHERS.get(mode)
-        if searcher is None:
+        vector_searcher = _VECTOR_SEARCHERS.get(mode)
+        if searcher is None and (vector_searcher is None or self.embedder is None):
             raise RetrievalUnavailable(f"Retrieval mode '{mode}' is not available")
         try:
+            if searcher is None and vector_searcher is not None and self.embedder is not None:
+                [query_vector] = await self.embedder.embed([query])
+                async with self.session_factory() as session:
+                    scored = await vector_searcher(session, query_vector, language, limit)
+                    return await _hydrate(session, scored)
+            if searcher is None:  # pragma: no cover - excluded by the check above
+                raise RetrievalUnavailable(f"Retrieval mode '{mode}' is not available")
             async with self.session_factory() as session:
                 scored = await searcher(session, query, language, limit)
                 return await _hydrate(session, scored)
