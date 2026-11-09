@@ -117,17 +117,16 @@ class Settings(BaseSettings):
 
     # Retrieval
     retrieval_mode: RetrievalMode = Field(
-        # Phase 03 default; becomes "hybrid" when phase 05 registers the hybrid searcher.
-        default="fulltext",
+        default="hybrid",
         validation_alias=_env("ATLAS_RETRIEVAL_MODE"),
     )
     retrieval_top_k: int = Field(default=5, gt=0, validation_alias=_env("ATLAS_RETRIEVAL_TOP_K"))
-    hnsw_m: int = Field(default=16, validation_alias=_env("ATLAS_HNSW_M"))
+    hnsw_m: int = Field(default=16, gt=0, validation_alias=_env("ATLAS_HNSW_M"))
     hnsw_ef_construction: int = Field(
-        default=64, validation_alias=_env("ATLAS_HNSW_EF_CONSTRUCTION")
+        default=64, gt=0, validation_alias=_env("ATLAS_HNSW_EF_CONSTRUCTION")
     )
-    hnsw_ef_search: int = Field(default=40, validation_alias=_env("ATLAS_HNSW_EF_SEARCH"))
-    rrf_k: int = Field(default=60, validation_alias=_env("ATLAS_RRF_K"))
+    hnsw_ef_search: int = Field(default=40, gt=0, validation_alias=_env("ATLAS_HNSW_EF_SEARCH"))
+    rrf_k: int = Field(default=60, gt=0, validation_alias=_env("ATLAS_RRF_K"))
 
     # Agent
     agent_tools_enabled: bool = Field(

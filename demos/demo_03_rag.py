@@ -61,6 +61,7 @@ from api.llm.fake import FAKE_MODEL, FAKE_PROVIDER
 from api.llm.instrumented import InstrumentedLLMClient
 from api.llm.tokens import count_messages, count_tokens
 from api.messages import Lang
+from api.rag.embeddings import EmbeddingClient
 from api.rag.fulltext import search_fulltext
 from api.rag.models import Chunk, Document
 from api.rag.retriever import RetrievedChunk, Retriever
@@ -216,7 +217,7 @@ class RecordingRetriever(Retriever):
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
-        embedder: object | None,
+        embedder: EmbeddingClient | None,
         settings: Settings,
     ) -> None:
         super().__init__(session_factory, embedder, settings)

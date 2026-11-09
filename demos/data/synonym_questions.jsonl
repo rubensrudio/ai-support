@@ -1,0 +1,16 @@
+{"id": "syn-en-01", "language": "en", "question": "cancel plan", "expected_doc_key": "end-subscription"}
+{"id": "syn-en-02", "language": "en", "question": "How do I cancel my plan?", "expected_doc_key": "end-subscription"}
+{"id": "syn-en-03", "language": "en", "question": "Can I freeze my membership for some weeks?", "expected_doc_key": "pause-subscription"}
+{"id": "syn-en-04", "language": "en", "question": "My parcel came broken, what should I do?", "expected_doc_key": "damaged-or-missing-items"}
+{"id": "syn-en-05", "language": "en", "question": "How to recover a lost passcode?", "expected_doc_key": "account-security"}
+{"id": "syn-en-06", "language": "en", "question": "Am I entitled to a reimbursement?", "expected_doc_key": "refund-policy"}
+{"id": "syn-en-07", "language": "en", "question": "My transaction was rejected, what now?", "expected_doc_key": "billing-and-payments"}
+{"id": "syn-en-08", "language": "en", "question": "When do my bonus miles vanish?", "expected_doc_key": "loyalty-and-referrals"}
+{"id": "syn-pt-01", "language": "pt", "question": "cancelar plano", "expected_doc_key": "end-subscription"}
+{"id": "syn-pt-02", "language": "pt", "question": "Como faço para cancelar meu plano?", "expected_doc_key": "end-subscription"}
+{"id": "syn-pt-03", "language": "pt", "question": "Posso congelar minha mensalidade por algumas semanas?", "expected_doc_key": "pause-subscription"}
+{"id": "syn-pt-04", "language": "pt", "question": "Meu pacote veio quebrado, o que faço?", "expected_doc_key": "damaged-or-missing-items"}
+{"id": "syn-pt-05", "language": "pt", "question": "Perdi minha palavra-passe, como recupero?", "expected_doc_key": "account-security"}
+{"id": "syn-pt-06", "language": "pt", "question": "Tenho direito a ser ressarcido?", "expected_doc_key": "refund-policy"}
+{"id": "syn-pt-07", "language": "pt", "question": "Minha transação foi negada, e agora?", "expected_doc_key": "billing-and-payments"}
+{"id": "syn-pt-08", "language": "pt", "question": "Quando minhas milhas de bônus somem?", "expected_doc_key": "loyalty-and-referrals"}

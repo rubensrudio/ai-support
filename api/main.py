@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from api.auth.routes import auth_router
 from api.chat.routes import chat_router
+from api.chat.service import close_embedder
 from api.config import get_settings
 from api.db.engine import dispose_engine
 from api.errors import install_error_handlers
@@ -20,6 +21,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await close_embedder()
         await dispose_engine()
 
 

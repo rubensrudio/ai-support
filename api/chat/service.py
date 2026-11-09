@@ -75,7 +75,8 @@ from api.llm.factory import build_llm_client
 from api.messages import Lang, MessageKey, user_message
 from api.observability.logging import get_trace_id, log_event
 from api.rag.citations import extract_citations
-from api.rag.retriever import RetrievalUnavailable, RetrievedChunk, Retriever
+from api.rag.embeddings import EmbeddingClient, OpenAIEmbeddingClient, build_embedder
+from api.rag.retriever import RetrievalUnavailable, RetrievedChunk, Retriever, is_vector_mode
 
 __all__ = [
     "LANGUAGE_NAMES",
@@ -309,14 +310,31 @@ def _llm_client() -> LLMClient:
     return build_llm_client(get_settings())
 
 
+@lru_cache(maxsize=1)
+def _embedder() -> EmbeddingClient:
+    """One embedding client per process, built from the settings on first use."""
+    return build_embedder(get_settings())
+
+
+async def close_embedder() -> None:
+    """Close the cached embedder's HTTP client, if one was built (app shutdown)."""
+    if _embedder.cache_info().currsize:
+        embedder = _embedder()
+        _embedder.cache_clear()
+        if isinstance(embedder, OpenAIEmbeddingClient):
+            await embedder.aclose()
+
+
 def get_chat_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ChatService:
     """FastAPI dependency: the request session, the cached LLM client and a retriever.
 
-    The retriever opens its own sessions (`get_sessionmaker`); no embedder in phase 03.
+    The retriever opens its own sessions (`get_sessionmaker`). The embedder is built only when
+    the configured retrieval mode is a vector mode, so `fulltext` needs no embedding key.
     Tests override it with `app.dependency_overrides`.
     """
     settings = get_settings()
-    retriever = Retriever(get_sessionmaker(), None, settings)
+    embedder = _embedder() if is_vector_mode(settings.retrieval_mode) else None
+    retriever = Retriever(get_sessionmaker(), embedder, settings)
     return ChatService(_llm_client(), settings, session, retriever=retriever)
