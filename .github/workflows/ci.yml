@@ -33,6 +33,7 @@ jobs:
       ATLAS_APP_ENV: ci
       ATLAS_DATABASE_URL: postgresql+psycopg://atlas:atlas@localhost:5432/atlas
       ATLAS_LLM_PROVIDER: fake
+      ATLAS_EMBEDDING_PROVIDER: fake
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -85,6 +86,7 @@ jobs:
     env:
       ATLAS_APP_ENV: ci
       ATLAS_LLM_PROVIDER: fake
+      ATLAS_EMBEDDING_PROVIDER: fake
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

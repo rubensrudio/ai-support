@@ -6,8 +6,14 @@ runs never share state (DA-12). The database is created only when a test asks fo
 `test_database_url`, `migrated_database` or `db_session`, so unit tests stay offline.
 
 Prerequisite for integration tests: `docker compose up -d db`.
+
+Tests are hermetic with respect to the developer's `.env`: `pytest_configure` forces the fake
+LLM and embedding providers in the process environment (which `Settings` reads before `.env`),
+so a local `.env` with real providers, or CI without any `.env`, runs the same suite. Tests that
+exercise another provider set it themselves with `monkeypatch.setenv`.
 """
 
+import os
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
@@ -23,6 +29,13 @@ from api.db.engine import dispose_engine, get_engine, reset_engine
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 TEST_DB_PREFIX = "atlas_test_"
+HERMETIC_ENV = {"ATLAS_LLM_PROVIDER": "fake", "ATLAS_EMBEDDING_PROVIDER": "fake"}
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Pin offline providers for every test and for the subprocesses they start."""
+    os.environ.update(HERMETIC_ENV)
+    get_settings.cache_clear()
 
 
 @pytest.fixture(scope="session")
