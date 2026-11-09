@@ -1,16 +1,24 @@
-"""`POST /chat` endpoint (TASK-020, CHAT-01, CHAT-90, CHAT-91, CHAT-92)."""
+"""`POST /chat` endpoint (TASK-020, TASK-032, CHAT-01, CHAT-90, CHAT-91, CHAT-92).
+
+`require_customer` is overridden with a Customer created in the test database; the real
+cookie dependency is covered in `test_chat_route_auth.py`.
+"""
 
 from collections.abc import AsyncIterator
 
 import httpx
 import pytest
+from chat_helpers import CustomerFactory, principal_of
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.auth.deps import require_customer
 from api.chat.service import ChatService, get_chat_service
 from api.config import Settings
 from api.llm.client import LLMError, LLMResponse, Usage
 from api.llm.fake import FakeLLMClient
 from api.main import app as module_app
 from api.main import create_app
+from api.prompts import load_prompt
 
 pytestmark = pytest.mark.integration
 
@@ -34,17 +42,25 @@ def fake() -> FakeLLMClient:
 
 
 @pytest.fixture
-async def client(fake: FakeLLMClient) -> AsyncIterator[httpx.AsyncClient]:
+async def client(
+    fake: FakeLLMClient, db_session: AsyncSession, make_customer: CustomerFactory
+) -> AsyncIterator[httpx.AsyncClient]:
     app = create_app()
-    service = ChatService(fake, Settings(llm_provider="fake", max_message_chars=MAX_CHARS))
+    principal = principal_of(await make_customer())
+    service = ChatService(
+        fake, Settings(llm_provider="fake", max_message_chars=MAX_CHARS), db_session
+    )
+    app.dependency_overrides[require_customer] = lambda: principal
     app.dependency_overrides[get_chat_service] = lambda: service
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
         yield http
 
 
-def test_module_app_exposes_chat_route() -> None:
-    assert "post" in module_app.openapi()["paths"]["/chat"]
+def test_module_app_exposes_chat_and_auth_routes() -> None:
+    paths = module_app.openapi()["paths"]
+    assert "post" in paths["/chat"]
+    assert "post" in paths["/auth/login"]
 
 
 async def test_chat_returns_scripted_answer(client: httpx.AsyncClient, fake: FakeLLMClient) -> None:
@@ -58,11 +74,16 @@ async def test_chat_returns_scripted_answer(client: httpx.AsyncClient, fake: Fak
     assert body["status"] == "completed"
     assert body["language"] == "en"
     assert body["citations"] == []
-    assert body["conversation_id"] is None
-    assert body["message_id"] is None
+    assert body["conversation_id"] is not None
+    assert isinstance(body["message_id"], int)
     assert body["confirmation"] is None
     assert body["trace_id"] == response.headers["x-trace-id"]
     assert len(fake.requests) == 1
+    request = fake.requests[0]
+    assert [block.text for block in request.system] == [
+        load_prompt("system").replace("{language}", "English")
+    ]
+    assert [(m.role, m.content) for m in request.messages] == [("user", "Hi there")]
 
 
 async def test_chat_answers_in_ui_language(client: httpx.AsyncClient, fake: FakeLLMClient) -> None:

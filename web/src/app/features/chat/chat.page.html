@@ -1,0 +1,95 @@
+<div class="chat-page">
+  <header class="topbar">
+    <span class="brand">
+      <span class="brand__mark" aria-hidden="true">A</span>
+      <span class="brand__name">{{ i18n.t('app.name') }}</span>
+      <span class="brand__tagline muted">{{ i18n.t('app.tagline') }}</span>
+    </span>
+    <div class="topbar__actions">
+      <app-lang-switch />
+      <button type="button" class="button button--ghost" data-action="logout" (click)="logout()">
+        {{ i18n.t('chat.logout') }}
+      </button>
+    </div>
+  </header>
+
+  <main class="chat" aria-labelledby="chat-title">
+    <h1 id="chat-title" class="visually-hidden">{{ i18n.t('chat.title') }}</h1>
+
+    <div
+      #thread
+      class="chat__thread"
+      role="log"
+      aria-live="polite"
+      [attr.aria-label]="i18n.t('chat.threadLabel')"
+      [attr.aria-busy]="sending()"
+    >
+      @for (turn of turns(); track turn.id) {
+        <article
+          class="chat-message"
+          [class.chat-message--user]="turn.role === 'user'"
+          [class.chat-message--assistant]="turn.role === 'assistant'"
+        >
+          <span class="chat-message__author">
+            {{ turn.role === 'user' ? i18n.t('chat.you') : i18n.t('chat.assistant') }}
+          </span>
+          @if (statusLabel(turn.status); as label) {
+            <span class="chat-message__status" [attr.data-status]="turn.status">{{ label }}</span>
+          }
+          <p class="chat-message__content">{{ turn.content }}</p>
+        </article>
+      } @empty {
+        <p class="chat__empty muted">{{ i18n.t('chat.empty') }}</p>
+      }
+      @if (sending()) {
+        <p class="chat__typing" role="status">
+          <span class="chat__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+          {{ i18n.t('chat.sending') }}
+        </p>
+      }
+    </div>
+
+    <div class="chat__alert" aria-live="assertive">
+      @if (errorText()) {
+        <p class="banner banner--error" role="alert">{{ errorText() }}</p>
+      }
+    </div>
+
+    <form class="composer" novalidate (submit)="onSubmit($event)">
+      <label class="visually-hidden" for="chat-input">{{ i18n.t('chat.inputLabel') }}</label>
+      <textarea
+        #input
+        id="chat-input"
+        class="composer__input"
+        name="message"
+        rows="2"
+        [value]="draft()"
+        [attr.placeholder]="i18n.t('chat.placeholder')"
+        [attr.aria-invalid]="validation() !== null"
+        aria-describedby="chat-input-error chat-input-counter chat-input-hint"
+        (input)="onInput($event)"
+        (keydown)="onKeydown($event)"
+      ></textarea>
+      <div class="composer__footer">
+        <div class="composer__meta">
+          <p id="chat-input-error" class="composer__error" aria-live="polite">{{ validationText() }}</p>
+          <p id="chat-input-hint" class="composer__hint muted">{{ i18n.t('chat.hint') }}</p>
+        </div>
+        <span
+          id="chat-input-counter"
+          class="composer__counter"
+          [class.composer__counter--over]="tooLong()"
+        >
+          {{ i18n.t('chat.counter', { count: length(), max: maxChars }) }}
+        </span>
+        <button
+          class="button button--primary"
+          type="submit"
+          [disabled]="sending() || tooLong()"
+        >
+          {{ i18n.t('chat.send') }}
+        </button>
+      </div>
+    </form>
+  </main>
+</div>

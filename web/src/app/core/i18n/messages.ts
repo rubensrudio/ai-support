@@ -1,0 +1,143 @@
+/**
+ * UI dictionaries (CT-24, DA-7). `en` defines the key set; `pt` is typed against it, so both
+ * always carry the same keys. Error texts mirror `api/messages.py` (plan 8.3). Placeholders use
+ * `{name}` and are filled by `I18nService.t`.
+ */
+
+export type Lang = 'pt' | 'en';
+
+export const SUPPORTED_LANGS: readonly Lang[] = ['pt', 'en'];
+
+const en = {
+  'app.name': 'Atlas',
+  'app.tagline': 'Assinaflow support assistant',
+
+  'lang.label': 'Language',
+  'lang.pt': 'Português',
+  'lang.en': 'English',
+
+  'login.title': 'Sign in to the Atlas demo',
+  'login.subtitle': 'Use one of the shared test accounts to chat with the support assistant.',
+  'login.username': 'Username',
+  'login.password': 'Password',
+  'login.submit': 'Sign in',
+  'login.submitting': 'Signing in…',
+  'login.validation.required': 'Enter the username and the password.',
+  'login.personas.title': 'Test accounts',
+  'login.personas.intro':
+    'This is a public demo. There is no sign-up: pick one of the fixed test personas below. Each one has its own fictional orders and subscription.',
+  'login.personas.alexName': 'Alex Morgan',
+  'login.personas.alexLang': 'speaks English',
+  'login.personas.biaName': 'Bia Souza',
+  'login.personas.biaLang': 'speaks Portuguese',
+  'login.personas.password':
+    'The shared password is set by the Operator and listed in the project README. Test data is restored every day.',
+
+  'chat.title': 'Conversation',
+  'chat.logout': 'Sign out',
+  'chat.threadLabel': 'Messages',
+  'chat.empty': 'Ask about your orders, subscription, refunds or Assinaflow policies.',
+  'chat.you': 'You',
+  'chat.assistant': 'Atlas',
+  'chat.inputLabel': 'Your message',
+  'chat.placeholder': 'Type your message…',
+  'chat.hint': 'Press Enter to send, Shift+Enter for a new line.',
+  'chat.send': 'Send',
+  'chat.sending': 'Atlas is answering…',
+  'chat.counter': '{count} / {max}',
+  'chat.validation.empty': 'The message is empty.',
+  'chat.validation.tooLong': 'The message is longer than {max} characters.',
+  'chat.status.blocked': 'Blocked',
+  'chat.status.degraded': 'Degraded answer',
+  'chat.status.limit_reached': 'Incomplete',
+  'chat.status.awaiting_confirmation': 'Awaiting confirmation',
+
+  'errors.VALIDATION_ERROR': 'The message is empty or a field is invalid.',
+  'errors.MESSAGE_TOO_LONG': 'The message is longer than {max} characters.',
+  'errors.AUTH_REQUIRED': 'Please sign in with a test account.',
+  'errors.INVALID_CREDENTIALS': 'Invalid username or password.',
+  'errors.CONVERSATION_NOT_FOUND': 'Conversation not found. Your next message starts a new one.',
+  'errors.CONFIRMATION_NOT_FOUND': 'Action not found.',
+  'errors.CONFIRMATION_NOT_PENDING': 'This action is no longer awaiting confirmation.',
+  'errors.MESSAGE_NOT_FOUND': 'Message not found.',
+  'errors.RATE_LIMITED': 'You have reached the message limit. Please try again at {retry_at}.',
+  'errors.RATE_LIMITED_GENERIC': 'You have reached the message limit. Please try again later.',
+  'errors.DAILY_CAP_REACHED': 'The demo has reached its daily limit and will be back at 00:00 UTC.',
+  'errors.LLM_UNAVAILABLE': "I couldn't answer right now. Please try again.",
+  'errors.TRIAGE_UNAVAILABLE': 'Triage is unavailable right now.',
+  'errors.INTERNAL_ERROR': 'Unexpected error. Please try again.',
+  'errors.STREAM_ERROR': 'Something went wrong. Please try again.',
+  'errors.NOT_FOUND': 'Resource not found.',
+  'errors.METHOD_NOT_ALLOWED': 'Method not allowed.',
+  'errors.NETWORK': "Couldn't reach the server. Check your connection and try again.",
+  'errors.UNKNOWN': 'Unexpected error. Please try again.',
+} as const;
+
+export type MessageKey = keyof typeof en;
+
+const pt: Record<MessageKey, string> = {
+  'app.name': 'Atlas',
+  'app.tagline': 'Assistente de atendimento da Assinaflow',
+
+  'lang.label': 'Idioma',
+  'lang.pt': 'Português',
+  'lang.en': 'English',
+
+  'login.title': 'Entre na demo do Atlas',
+  'login.subtitle': 'Use uma das contas de teste compartilhadas para conversar com o assistente.',
+  'login.username': 'Usuário',
+  'login.password': 'Senha',
+  'login.submit': 'Entrar',
+  'login.submitting': 'Entrando…',
+  'login.validation.required': 'Informe o usuário e a senha.',
+  'login.personas.title': 'Contas de teste',
+  'login.personas.intro':
+    'Esta é uma demo pública. Não há cadastro: escolha uma das personas de teste fixas abaixo. Cada uma tem os próprios pedidos e assinatura fictícios.',
+  'login.personas.alexName': 'Alex Morgan',
+  'login.personas.alexLang': 'fala inglês',
+  'login.personas.biaName': 'Bia Souza',
+  'login.personas.biaLang': 'fala português',
+  'login.personas.password':
+    'A senha compartilhada é definida pelo Operador e está no README do projeto. Os dados de teste são restaurados todos os dias.',
+
+  'chat.title': 'Conversa',
+  'chat.logout': 'Sair',
+  'chat.threadLabel': 'Mensagens',
+  'chat.empty': 'Pergunte sobre seus pedidos, assinatura, reembolsos ou as políticas da Assinaflow.',
+  'chat.you': 'Você',
+  'chat.assistant': 'Atlas',
+  'chat.inputLabel': 'Sua mensagem',
+  'chat.placeholder': 'Digite sua mensagem…',
+  'chat.hint': 'Enter envia, Shift+Enter quebra a linha.',
+  'chat.send': 'Enviar',
+  'chat.sending': 'O Atlas está respondendo…',
+  'chat.counter': '{count} / {max}',
+  'chat.validation.empty': 'A mensagem está vazia.',
+  'chat.validation.tooLong': 'A mensagem passou de {max} caracteres.',
+  'chat.status.blocked': 'Bloqueada',
+  'chat.status.degraded': 'Resposta degradada',
+  'chat.status.limit_reached': 'Incompleta',
+  'chat.status.awaiting_confirmation': 'Aguardando confirmação',
+
+  'errors.VALIDATION_ERROR': 'A mensagem está vazia ou algum campo é inválido.',
+  'errors.MESSAGE_TOO_LONG': 'A mensagem passou de {max} caracteres.',
+  'errors.AUTH_REQUIRED': 'Entre com uma conta de teste.',
+  'errors.INVALID_CREDENTIALS': 'Usuário ou senha inválidos.',
+  'errors.CONVERSATION_NOT_FOUND': 'Conversa não encontrada. A próxima mensagem inicia uma nova.',
+  'errors.CONFIRMATION_NOT_FOUND': 'Ação não encontrada.',
+  'errors.CONFIRMATION_NOT_PENDING': 'Essa ação não está mais aguardando confirmação.',
+  'errors.MESSAGE_NOT_FOUND': 'Mensagem não encontrada.',
+  'errors.RATE_LIMITED': 'Você atingiu o limite de mensagens. Tente de novo às {retry_at}.',
+  'errors.RATE_LIMITED_GENERIC': 'Você atingiu o limite de mensagens. Tente de novo mais tarde.',
+  'errors.DAILY_CAP_REACHED': 'A demo atingiu o limite diário e volta às 00:00 UTC.',
+  'errors.LLM_UNAVAILABLE': 'Não consegui responder agora. Tente de novo.',
+  'errors.TRIAGE_UNAVAILABLE': 'Triagem indisponível no momento.',
+  'errors.INTERNAL_ERROR': 'Erro inesperado. Tente de novo.',
+  'errors.STREAM_ERROR': 'Houve um erro. Tente de novo.',
+  'errors.NOT_FOUND': 'Recurso não encontrado.',
+  'errors.METHOD_NOT_ALLOWED': 'Método não permitido.',
+  'errors.NETWORK': 'Não foi possível falar com o servidor. Verifique a conexão e tente de novo.',
+  'errors.UNKNOWN': 'Erro inesperado. Tente de novo.',
+};
+
+export const MESSAGES: Record<Lang, Record<MessageKey, string>> = { en, pt };
