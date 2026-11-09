@@ -44,17 +44,52 @@ request is the phase-02 one: system prompt, summary block and history window, no
 
 A provider failure (chat or summarisation) becomes `AtlasError(LLM_UNAVAILABLE, 502)` without
 the provider text (CHAT-92), and no assistant message is stored.
+
+Phase 06 (TASK-077) runs the agent loop (CT-45) when `settings.agent_tools_enabled` and the
+provider takes tools (`codex_cli` does not: it runs the plain chat and logs
+`chat_tools_unsupported_by_provider` once per process):
+
+- the request of step 5 carries `registry.specs()` as tools and goes to `AgentLoop.run` with a
+  `ToolContext` built **only from the session principal** (customer id and e-mail, trace id,
+  request session, reply language, now). `tool_start`/`tool_end` are forwarded as they come;
+  the loop's final `done` is replaced, after the commit, by one with the stored `message_id`;
+- a destructive call suspends the loop (TOOL-05): `suspend` stores a `PendingConfirmation`
+  with the serialised `AgentState` and returns the `ConfirmationPrompt` (`target='#<order_id>'`;
+  for `issue_refund` the amount comes from `check_refund_policy` on the customer's own order,
+  only when eligible, never from the model). The assistant turn is stored with the confirmation
+  question (`messages.status` stays `complete`: the column has no `awaiting_confirmation` value, the
+  `done` carries that status);
+- a new message in a conversation with a pending confirmation refuses it first
+  (`refuse_pending`, TOOL-97) and stores, before the user message, an assistant note saying the
+  action was refused and not executed, so the model sees the refusal in the history;
+- `resolve_confirmation` resolves the confirmation (`ConfirmationStore.resolve`: 404 missing or
+  another customer's, 409 not pending or expired; an expired row is committed as `expired`
+  before the error), resumes the loop from the stored state with the current session's
+  `ToolContext` and stores the answer like `handle_message`. The resolution, the tool effects
+  and the answer are committed together, before the `done`: if the model fails after the
+  tool ran, everything rolls back and the confirmation is still pending.
 """
 
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import replace
-from functools import lru_cache
-from typing import Annotated
+from datetime import UTC, datetime
+from functools import cache, lru_cache
+from typing import Annotated, Any, cast
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.agent.events import AgentEvent, CitationEvent, DoneEvent, ErrorEvent
+from api.agent.confirmations import ConfirmationStore
+from api.agent.events import (
+    AgentEvent,
+    ChatStatus,
+    CitationEvent,
+    ConfirmationPrompt,
+    DoneEvent,
+    ErrorEvent,
+)
+from api.agent.loop import AgentLoop, AgentState, AgentTurn, Decision, SuspendFn
 from api.auth.deps import CurrentCustomer
 from api.chat.context import HistoryWindow, LLMSummarizer, build_history, summary_block
 from api.chat.language import detect_language
@@ -70,13 +105,18 @@ from api.chat.schemas import ChatRequest, ChatResponse, Citation
 from api.config import Settings, get_settings
 from api.db.engine import get_db_session, get_sessionmaker
 from api.errors import AtlasError, ErrorCode
-from api.llm.client import LLMClient, LLMError, LLMRequest, SystemBlock
+from api.llm.client import LLMClient, LLMError, LLMRequest, SystemBlock, ToolCall, ToolSpec
 from api.llm.factory import build_llm_client
 from api.messages import Lang, MessageKey, user_message
 from api.observability.logging import get_trace_id, log_event
 from api.rag.citations import extract_citations
 from api.rag.embeddings import EmbeddingClient, OpenAIEmbeddingClient, build_embedder
 from api.rag.retriever import RetrievalUnavailable, RetrievedChunk, Retriever, is_vector_mode
+from api.tools.audit import list_successful_actions
+from api.tools.catalog import build_default_registry
+from api.tools.models import CURRENCY
+from api.tools.refunds import CheckRefundArgs, check_refund_policy
+from api.tools.registry import ToolContext, ToolRegistry
 
 __all__ = [
     "LANGUAGE_NAMES",
@@ -89,6 +129,30 @@ __all__ = [
 
 UNSUPPORTED_LANGUAGE_REPLY_LANG: Lang = "en"
 
+# Providers whose adapter rejects tool definitions (`LLMError`, not recoverable): the chat runs
+# without tools for them, as with `agent_tools_enabled=False`.
+PROVIDERS_WITHOUT_TOOLS: frozenset[str] = frozenset({"codex_cli"})
+
+
+@cache
+def _log_tools_unsupported(provider: str) -> None:
+    """Logged once per process and provider."""
+    log_event("chat_tools_unsupported_by_provider", provider=provider)
+
+
+# Action names of the confirmation question stored as the assistant turn (`CONFIRM_ACTION`).
+_ACTION_NAMES: dict[str, dict[Lang, str]] = {
+    "cancel_order": {"pt": "cancelar o pedido", "en": "cancel order"},
+    "issue_refund": {"pt": "reembolsar o pedido", "en": "refund order"},
+}
+
+# TOOL-97: history note stored when a new message refuses a pending confirmation. It is for the
+# model (the conversation language does not matter), so it stays in English.
+REFUSED_BY_NEW_MESSAGE_NOTE = (
+    "[The customer sent a new message instead of confirming {tool} {target}: the action was "
+    "refused and was not executed.]"
+)
+
 
 class ChatService:
     def __init__(
@@ -97,12 +161,25 @@ class ChatService:
         settings: Settings,
         session: AsyncSession,
         retriever: Retriever | None = None,
+        registry: ToolRegistry | None = None,
     ) -> None:
         self.llm = llm
         self.settings = settings
         self.session = session
         self.retriever = retriever
+        self.registry = registry if registry is not None else build_default_registry()
         self.repository = ConversationRepository(session)
+        self.confirmations = ConfirmationStore(session, settings)
+
+    @property
+    def tools_enabled(self) -> bool:
+        """Agent tools on, unless the provider cannot take tools (then the plain chat runs)."""
+        if not self.settings.agent_tools_enabled:
+            return False
+        if self.settings.llm_provider in PROVIDERS_WITHOUT_TOOLS:
+            _log_tools_unsupported(self.settings.llm_provider)
+            return False
+        return True
 
     def handle_message(
         self, request: ChatRequest, principal: CurrentCustomer | None
@@ -112,6 +189,13 @@ class ChatService:
         if principal is None:
             raise AtlasError(ErrorCode.AUTH_REQUIRED, 401)
         return self._answer(request, principal)
+
+    def resolve_confirmation(
+        self, confirmation_id: uuid.UUID, decision: Decision, customer: CurrentCustomer
+    ) -> AsyncIterator[AgentEvent]:
+        """Confirm or refuse a pending destructive call and resume the agent loop (TOOL-05,
+        TOOL-13). Raises `AtlasError` 404/409 from `ConfirmationStore.resolve` when iterated."""
+        return self._resume(confirmation_id, decision, customer)
 
     async def collect(self, events: AsyncIterator[AgentEvent]) -> ChatResponse:
         """Fold an event stream into the JSON response of `POST /chat`."""
@@ -159,7 +243,11 @@ class ChatService:
         self, request: ChatRequest, principal: CurrentCustomer
     ) -> AsyncIterator[AgentEvent]:
         trace_id = get_trace_id()
+        # `get_owned` already checked that the conversation is the principal's, so refusing its
+        # pending confirmations cannot touch another customer's (`refuse_pending` takes no owner).
         conversation = await self._conversation(request, principal)
+        if request.conversation_id is not None:
+            await self._refuse_pending(conversation, trace_id)
         fallback: Lang = request.ui_language or principal.language
         detected = detect_language(request.message, fallback=fallback)
         await self.repository.append_message(
@@ -167,31 +255,141 @@ class ChatService:
         )
         await self.session.commit()
 
-        citations: list[Citation] = []
         if detected == "other":
             content = user_message(MessageKey.UNSUPPORTED_LANGUAGE, UNSUPPORTED_LANGUAGE_REPLY_LANG)
-            reply_language: Lang = UNSUPPORTED_LANGUAGE_REPLY_LANG
             log_event("chat_unsupported_language", conversation_id=str(conversation.id))
-        else:
-            reply_language = detected
-            try:
-                chunks = await self._retrieve(request.message, reply_language)
-            except RetrievalUnavailable as exc:
-                log_event(
-                    "chat_knowledge_unavailable",
-                    conversation_id=str(conversation.id),
-                    exc_type=type(exc).__name__,
-                )
-                content = user_message(MessageKey.KNOWLEDGE_UNAVAILABLE, reply_language)
-            else:
-                content = await self._llm_reply(
-                    conversation, reply_language, request.message, chunks
-                )
-                if chunks is not None:
-                    citations = extract_citations(content, chunks)
+            async for event in self._finish(
+                conversation.id, content, UNSUPPORTED_LANGUAGE_REPLY_LANG, trace_id
+            ):
+                yield event
+            return
 
+        reply_language: Lang = detected
+        try:
+            chunks = await self._retrieve(request.message, reply_language)
+        except RetrievalUnavailable as exc:
+            log_event(
+                "chat_knowledge_unavailable",
+                conversation_id=str(conversation.id),
+                exc_type=type(exc).__name__,
+            )
+            content = user_message(MessageKey.KNOWLEDGE_UNAVAILABLE, reply_language)
+            async for event in self._finish(conversation.id, content, reply_language, trace_id):
+                yield event
+            return
+
+        if not self.tools_enabled:
+            content = await self._llm_reply(conversation, reply_language, request.message, chunks)
+            async for event in self._finish(
+                conversation.id, content, reply_language, trace_id, chunks=chunks
+            ):
+                yield event
+            return
+
+        window = await self._window(conversation)
+        llm_request = self._request(
+            window, reply_language, request.message, chunks, self.registry.specs()
+        )
+        ctx = self._tool_context(principal, trace_id, reply_language)
+        turn = AgentTurn(
+            request=llm_request,
+            ctx=ctx,
+            suspend=self._suspend_fn(conversation.id, ctx),
+            conversation_id=conversation.id,
+        )
+        async for event in self._drive(self._loop().run(turn), conversation.id, chunks):
+            yield event
+
+    async def _resume(
+        self, confirmation_id: uuid.UUID, decision: Decision, customer: CurrentCustomer
+    ) -> AsyncIterator[AgentEvent]:
+        trace_id = get_trace_id()
+        try:
+            pending = await self.confirmations.resolve(confirmation_id, customer.id, decision)
+        except AtlasError as exc:
+            if exc.code is ErrorCode.CONFIRMATION_NOT_PENDING:
+                # Keep an `expired` mark: the request session rolls back after the error.
+                await self.session.commit()
+            raise
+        log_event(
+            "chat_confirmation_resolved",
+            confirmation_id=str(pending.id),
+            tool=pending.tool,
+            decision=decision,
+        )
+        state = AgentState.from_dict(pending.agent_state)
+        language = _state_language(pending.agent_state, customer.language)
+        # Identity, session and clock come from the current request, never from the state.
+        ctx = self._tool_context(customer, trace_id, language)
+        events = self._loop().resume(
+            state,
+            decision,
+            ctx,
+            suspend=self._suspend_fn(pending.conversation_id, ctx),
+            conversation_id=pending.conversation_id,
+        )
+        async for event in self._drive(events, pending.conversation_id, None):
+            yield event
+
+    async def _drive(
+        self,
+        events: AsyncIterator[AgentEvent],
+        conversation_id: uuid.UUID,
+        chunks: list[RetrievedChunk] | None,
+    ) -> AsyncIterator[AgentEvent]:
+        """Forward the loop's tool events, then store the answer and emit the final `done`."""
+        final: DoneEvent | None = None
+        try:
+            async for event in events:
+                if isinstance(event, DoneEvent):
+                    final = event
+                    break
+                yield event
+        except LLMError as exc:
+            raise _llm_unavailable(exc) from exc
+        if final is None:
+            log_event("chat_agent_without_terminal_event")
+            raise AtlasError(ErrorCode.INTERNAL_ERROR, 500)
+
+        if final.status == "awaiting_confirmation" and final.confirmation is not None:
+            content = _confirmation_text(final.confirmation, final.language)
+            async for event in self._finish(
+                conversation_id,
+                content,
+                final.language,
+                final.trace_id,
+                status="awaiting_confirmation",
+                confirmation=final.confirmation,
+            ):
+                yield event
+            return
+
+        status = final.status if final.status != "awaiting_confirmation" else "completed"
+        async for event in self._finish(
+            conversation_id,
+            final.content,
+            final.language,
+            final.trace_id,
+            chunks=chunks,
+            status=status,
+        ):
+            yield event
+
+    async def _finish(
+        self,
+        conversation_id: uuid.UUID,
+        content: str,
+        language: Lang,
+        trace_id: str,
+        *,
+        chunks: list[RetrievedChunk] | None = None,
+        status: ChatStatus = "completed",
+        confirmation: ConfirmationPrompt | None = None,
+    ) -> AsyncIterator[AgentEvent]:
+        """Store the assistant reply, commit, then emit its citations and the `done` event."""
+        citations = extract_citations(content, chunks) if chunks is not None else []
         reply = await self.repository.append_message(
-            conversation.id, "assistant", content, "complete", reply_language, trace_id
+            conversation_id, "assistant", content, "complete", language, trace_id
         )
         await self.session.commit()
         for citation in citations:
@@ -203,13 +401,83 @@ class ChatService:
                 page=citation.page,
             )
         yield DoneEvent(
-            status="completed",
+            status=status,
             content=content,
-            language=reply_language,
+            language=language,
             trace_id=trace_id,
-            conversation_id=conversation.id,
+            conversation_id=conversation_id,
             message_id=reply.id,
+            confirmation=confirmation,
         )
+
+    async def _refuse_pending(self, conversation: Conversation, trace_id: str) -> None:
+        """TOOL-97: a new message refuses the pending confirmations of the conversation."""
+        refused = await self.confirmations.refuse_pending(conversation.id)
+        for row in refused:
+            note = REFUSED_BY_NEW_MESSAGE_NOTE.format(tool=row.tool, target=_target(row.arguments))
+            await self.repository.append_message(
+                conversation.id, "assistant", note, "complete", None, trace_id
+            )
+            log_event(
+                "chat_confirmation_refused_by_message",
+                confirmation_id=str(row.id),
+                tool=row.tool,
+            )
+
+    def _loop(self) -> AgentLoop:
+        async def audit_reader(trace_id: str) -> list[Any]:
+            return list(await list_successful_actions(self.session, trace_id))
+
+        return AgentLoop(self.llm, self.registry, self.settings, audit_reader)
+
+    def _tool_context(
+        self, principal: CurrentCustomer, trace_id: str, language: Lang
+    ) -> ToolContext:
+        return ToolContext(
+            customer_id=principal.id,
+            customer_email=principal.email,
+            trace_id=trace_id,
+            session=self.session,
+            language=language,
+            now=datetime.now(UTC),
+        )
+
+    def _suspend_fn(self, conversation_id: uuid.UUID, ctx: ToolContext) -> SuspendFn:
+        async def suspend(call: ToolCall, state: AgentState) -> ConfirmationPrompt:
+            row = await self.confirmations.create(
+                conversation_id=conversation_id,
+                customer_id=ctx.customer_id,
+                tool=call.name,
+                arguments=dict(call.arguments),
+                agent_state=state.to_dict(),
+                trace_id=ctx.trace_id,
+            )
+            amount_cents = await self._refund_amount(call, ctx)
+            log_event("chat_confirmation_requested", confirmation_id=str(row.id), tool=call.name)
+            return ConfirmationPrompt(
+                id=row.id,
+                tool=call.name,
+                target=_target(call.arguments),
+                amount_cents=amount_cents,
+                currency=CURRENCY if amount_cents is not None else None,
+            )
+
+        return suspend
+
+    async def _refund_amount(self, call: ToolCall, ctx: ToolContext) -> int | None:
+        """Amount shown for `issue_refund`: the total of the session customer's own order,
+        through `check_refund_policy` (owner-filtered), never a value from the model, and only
+        when the policy says the order is eligible."""
+        if call.name != "issue_refund":
+            return None
+        order_id = _order_id(call.arguments)
+        if order_id is None:
+            return None
+        result = await check_refund_policy(CheckRefundArgs(order_id=order_id), ctx)
+        if not result.ok or result.content.get("eligible") is not True:
+            return None
+        amount = result.content.get("amount_cents")
+        return amount if isinstance(amount, int) else None
 
     async def _retrieve(self, message: str, language: Lang) -> list[RetrievedChunk] | None:
         """Top-k chunks for `message`, or `None` when retrieval is off (no retriever or mode
@@ -231,12 +499,15 @@ class ChatService:
         language: Lang,
         message: str,
         chunks: list[RetrievedChunk] | None,
+        tools: list[ToolSpec] | None = None,
     ) -> LLMRequest:
         if chunks is None:
             system = [SystemBlock(system_prompt(language))]
             if window.summary:
                 system.append(summary_block(window.summary))
-            return LLMRequest(system=system, messages=window.messages, purpose="chat")
+            return LLMRequest(
+                system=system, messages=window.messages, tools=list(tools or []), purpose="chat"
+            )
         # The window ends with the user message persisted for this turn; `build_request`
         # appends it itself, after the excerpts, in its `<customer_question>` tag.
         history = window
@@ -248,17 +519,12 @@ class ChatService:
             history=history,
             chunks=chunks,
             user_message=message,
-            tools=[],
+            tools=list(tools or []),
             layout=self.settings.prompt_layout,
         )
 
-    async def _llm_reply(
-        self,
-        conversation: Conversation,
-        language: Lang,
-        message: str,
-        chunks: list[RetrievedChunk] | None,
-    ) -> str:
+    async def _window(self, conversation: Conversation) -> HistoryWindow:
+        """History window of `conversation` (CT-22); stores a new summary when one is made."""
         upto = conversation.summary_upto_message_id
         pending = [
             message
@@ -273,15 +539,8 @@ class ChatService:
                 LLMSummarizer(self.llm),
                 mode=self.settings.history_mode,
             )
-            response = await self.llm.complete(self._request(window, language, message, chunks))
         except LLMError as exc:
-            log_event(
-                "chat_llm_unavailable",
-                exc_type=type(exc).__name__,
-                recoverable=exc.recoverable,
-                status=exc.status,
-            )
-            raise AtlasError(ErrorCode.LLM_UNAVAILABLE, 502) from exc
+            raise _llm_unavailable(exc) from exc
         log_event(
             "chat_context_window",
             conversation_id=str(conversation.id),
@@ -293,7 +552,61 @@ class ChatService:
             await self.repository.save_summary(
                 conversation.id, window.summary, window.summarized_upto
             )
+        return window
+
+    async def _llm_reply(
+        self,
+        conversation: Conversation,
+        language: Lang,
+        message: str,
+        chunks: list[RetrievedChunk] | None,
+    ) -> str:
+        window = await self._window(conversation)
+        try:
+            response = await self.llm.complete(self._request(window, language, message, chunks))
+        except LLMError as exc:
+            raise _llm_unavailable(exc) from exc
         return response.text
+
+
+def _llm_unavailable(exc: LLMError) -> AtlasError:
+    log_event(
+        "chat_llm_unavailable",
+        exc_type=type(exc).__name__,
+        recoverable=exc.recoverable,
+        status=exc.status,
+    )
+    return AtlasError(ErrorCode.LLM_UNAVAILABLE, 502)
+
+
+def _order_id(arguments: dict[str, Any]) -> int | None:
+    value = arguments.get("order_id")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 1:
+        return value
+    if isinstance(value, str) and value.strip().lstrip("#").isdigit():
+        number = int(value.strip().lstrip("#"))
+        return number if number >= 1 else None
+    return None
+
+
+def _target(arguments: dict[str, Any]) -> str:
+    """`#<order_id>` as the web card shows it."""
+    order_id = _order_id(arguments)
+    if order_id is not None:
+        return f"#{order_id}"
+    return f"#{arguments.get('order_id', '?')}"
+
+
+def _confirmation_text(prompt: ConfirmationPrompt, language: Lang) -> str:
+    action = _ACTION_NAMES.get(prompt.tool, {}).get(language, prompt.tool)
+    return user_message(MessageKey.CONFIRM_ACTION, language, action=action, target=prompt.target)
+
+
+def _state_language(state: dict[str, Any], fallback: Lang) -> Lang:
+    language = state.get("language")
+    return cast(Lang, language) if language in ("pt", "en") else fallback
 
 
 def _error_from_code(code: str) -> AtlasError:
@@ -325,10 +638,17 @@ async def close_embedder() -> None:
             await embedder.aclose()
 
 
+@lru_cache(maxsize=1)
+def _registry() -> ToolRegistry:
+    """The default tool registry, built once per process (it holds no state per request)."""
+    return build_default_registry()
+
+
 def get_chat_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ChatService:
-    """FastAPI dependency: the request session, the cached LLM client and a retriever.
+    """FastAPI dependency: the request session, the cached LLM client and tool registry, and
+    a retriever.
 
     The retriever opens its own sessions (`get_sessionmaker`). The embedder is built only when
     the configured retrieval mode is a vector mode, so `fulltext` needs no embedding key.
@@ -337,4 +657,4 @@ def get_chat_service(
     settings = get_settings()
     embedder = _embedder() if is_vector_mode(settings.retrieval_mode) else None
     retriever = Retriever(get_sessionmaker(), embedder, settings)
-    return ChatService(_llm_client(), settings, session, retriever=retriever)
+    return ChatService(_llm_client(), settings, session, retriever=retriever, registry=_registry())

@@ -227,6 +227,45 @@ p {
   color: var(--danger);
 }
 
+.confirm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-self: flex-start;
+  max-width: min(100%, 36rem);
+  padding: 14px 16px;
+  background: var(--warning-bg);
+  color: var(--text);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
+
+  &:focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 2px;
+  }
+}
+
+.confirm-card__question {
+  margin: 0;
+  font-weight: 600;
+}
+
+.confirm-card__amount {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.confirm-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.composer__input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 /* ---------- Login ---------- */
 
 .auth-page {

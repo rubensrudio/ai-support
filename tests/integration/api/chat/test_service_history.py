@@ -21,6 +21,7 @@ from api.llm.tokens import count_messages
 from api.messages import MessageKey, user_message
 from api.observability.logging import bind_trace_id, reset_trace_id
 from api.prompts import load_prompt
+from api.tools.catalog import TOOL_NAMES
 
 pytestmark = pytest.mark.integration
 
@@ -74,7 +75,8 @@ async def test_second_message_sends_history_with_name(
     assert any("Rubens" in content for _, content in sent[:-1])
     assert [block.text for block in fake.requests[1].system] == [_system("English")]
     assert fake.requests[1].purpose == "chat"
-    assert fake.requests[1].tools == []
+    # Phase 06 (TASK-077): with agent tools enabled (default) the chat request carries them.
+    assert [spec.name for spec in fake.requests[1].tools] == list(TOOL_NAMES)
 
 
 async def test_turn_persists_user_then_assistant(

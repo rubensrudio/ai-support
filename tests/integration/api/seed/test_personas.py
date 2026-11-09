@@ -121,12 +121,3 @@ async def test_cli_reset_recreates_the_personas(committed_personas: str) -> None
         assert await _customer_count(session) == 2
     assert after != before
     assert sessions == 0
-
-
-async def test_cli_commerce_flag_is_accepted_but_not_available_yet(
-    committed_personas: str,
-) -> None:
-    result = _run_cli(committed_personas, "--commerce")
-
-    assert result.returncode == 0, result.stderr
-    assert "not available until phase 06" in result.stdout

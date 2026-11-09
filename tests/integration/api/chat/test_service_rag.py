@@ -21,6 +21,7 @@ from api.llm.client import LLMError, LLMRequest, LLMResponse, Usage
 from api.llm.fake import FakeLLMClient
 from api.messages import Lang, MessageKey, user_message
 from api.rag.retriever import RetrievalUnavailable, RetrievedChunk, Retriever
+from api.tools.catalog import TOOL_NAMES
 
 pytestmark = pytest.mark.integration
 
@@ -125,7 +126,8 @@ async def test_response_citations_match_markers_of_the_answer(
         .messages[-1]
         .content.endswith(f"<customer_question>\n{QUESTION}\n</customer_question>")
     )
-    assert fake.requests[0].tools == []
+    # Phase 06 (TASK-077): with agent tools enabled (default) the chat request carries them.
+    assert [spec.name for spec in fake.requests[0].tools] == list(TOOL_NAMES)
 
 
 async def test_citation_events_come_before_the_done_event(

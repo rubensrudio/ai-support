@@ -38,13 +38,22 @@
           }
           <p class="chat-message__content">{{ turn.content }}</p>
         </article>
+        @if (pending(); as pendingAction) {
+          @if (pendingAction.turnId === turn.id) {
+            <app-confirmation-card
+              [prompt]="pendingAction.prompt"
+              [busy]="sending()"
+              (decision)="onDecision($event)"
+            />
+          }
+        }
       } @empty {
         <p class="chat__empty muted">{{ i18n.t('chat.empty') }}</p>
       }
       @if (sending()) {
         <p class="chat__typing" role="status">
           <span class="chat__dots" aria-hidden="true"><span></span><span></span><span></span></span>
-          {{ i18n.t('chat.sending') }}
+          {{ deciding() ? i18n.t('confirm.sending') : i18n.t('chat.sending') }}
         </p>
       }
     </div>
@@ -64,6 +73,7 @@
         name="message"
         rows="2"
         [value]="draft()"
+        [disabled]="pending() !== null"
         [attr.placeholder]="i18n.t('chat.placeholder')"
         [attr.aria-invalid]="validation() !== null"
         aria-describedby="chat-input-error chat-input-counter chat-input-hint"
@@ -85,7 +95,7 @@
         <button
           class="button button--primary"
           type="submit"
-          [disabled]="sending() || tooLong()"
+          [disabled]="locked() || tooLong()"
         >
           {{ i18n.t('chat.send') }}
         </button>
