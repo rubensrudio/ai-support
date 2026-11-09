@@ -17,7 +17,7 @@ from api.agent.events import (
     ToolEndEvent,
     ToolStartEvent,
 )
-from api.agent.loop import MAX_STEPS, AgentLoop, AgentState, AgentTurn
+from api.agent.loop import AgentLoop, AgentState, AgentTurn
 from api.config import Settings
 from api.llm.client import (
     ChatMessage,
@@ -607,18 +607,20 @@ def test_agent_state_to_dict_is_a_copy() -> None:
 
 async def test_loop_stops_after_max_steps_model_calls() -> None:
     fx = Fixture()
+    max_steps = _settings().agent_max_steps
     script: list[LLMResponse | LLMError] = [
         _calls(ToolCall(id=f"c{i}", name="list_orders", arguments={"limit": i + 1}))
-        for i in range(MAX_STEPS + 2)
+        for i in range(max_steps + 2)
     ]
     llm = FakeLLMClient(script)
     loop = AgentLoop(llm, fx.registry, _settings())
 
     events = await _collect(loop.run(_turn(fx)))
 
-    assert MAX_STEPS == 8
-    assert len(llm.requests) == MAX_STEPS
-    assert len(fx.list_orders.calls) == MAX_STEPS
+    assert max_steps == 8
+    assert len(llm.requests) == max_steps
+    # Phase 07 (AGT-02): the tools asked by the call that used the last step never run.
+    assert len(fx.list_orders.calls) == max_steps - 1
     done = _done(events)
     assert done.status == "limit_reached"
     assert done.content
@@ -627,19 +629,26 @@ async def test_loop_stops_after_max_steps_model_calls() -> None:
 
 async def test_steps_count_across_suspension_and_resume() -> None:
     fx = Fixture()
+    max_steps = _settings().agent_max_steps
     llm = FakeLLMClient([])
-    for i in range(MAX_STEPS - 1):
+    for i in range(max_steps - 2):
         llm.enqueue(_calls(ToolCall(id=f"l{i}", name="list_orders", arguments={"limit": i + 1})))
     loop, state = await _suspended(
         fx, llm, ToolCall(id="d", name="cancel_order", arguments={"order_id": 1001})
     )
-    llm.enqueue(_calls(ToolCall(id="x", name="list_orders", arguments={})))
+    llm.enqueue(
+        _calls(ToolCall(id="x", name="list_orders", arguments={})),
+        _calls(ToolCall(id="y", name="list_orders", arguments={"limit": 50})),
+    )
 
     events = await _collect(loop.resume(state, "confirm", _ctx(), suspend=fx.suspend))
 
-    assert state.to_dict()["steps"] == MAX_STEPS
+    assert state.to_dict()["steps"] == max_steps - 1
+    assert len(fx.cancel_order.calls) == 1
+    # The resumed call uses the last step: its tool never runs and no further call is made.
+    assert len(fx.list_orders.calls) == max_steps - 2
     assert _done(events).status == "limit_reached"
-    assert llm.remaining == 1  # no ninth model call
+    assert llm.remaining == 1
 
 
 # --- precheck before the confirmation card (round 1) -----------------------------------------
