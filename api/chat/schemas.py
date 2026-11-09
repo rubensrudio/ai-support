@@ -22,6 +22,7 @@ class ChatRequest(BaseModel):
 class Citation(BaseModel):
     index: int
     document: str
+    doc_key: str | None = None
     section: str | None = None
     page: int | None = None
 

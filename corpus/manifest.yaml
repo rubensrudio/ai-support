@@ -1,0 +1,313 @@
+# Assinaflow support corpus (fictional company; TASK-040, RAG-02, RAG-14).
+#
+# One entry per doc_key. Every document exists in English and Portuguese with the same facts.
+# Paths are relative to this directory:
+#   source: the Markdown file that is written by hand (en/<doc_key>.md, pt/<doc_key>.md)
+#   file:   the file that ingestion reads. For `format: md` it is the source itself; for
+#           `format: pdf` it is the PDF generated from the source by
+#           scripts/build_corpus_pdfs.py (pdf/<language>/<doc_key>.pdf, versioned).
+# `malicious: true` marks the prompt-injection document that the phase 10 ingestion scan
+# must quarantine (GRD-03). Phase 03 ingests it like any other document.
+version: 1
+
+# Synonym pairs that keyword search cannot bridge (RAG-05, RAG-16). Only `end-subscription`
+# talks about ending a subscription, and it never uses the words "cancel" or "plan".
+synonyms:
+  - en: ["cancel plan", "end subscription"]
+    pt: ["cancelar plano", "encerrar assinatura"]
+
+documents:
+  - doc_key: getting-started
+    doc_type: manual
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Getting started with Assinaflow"
+      pt: "Primeiros passos com a Assinaflow"
+    source:
+      en: en/getting-started.md
+      pt: pt/getting-started.md
+    file:
+      en: en/getting-started.md
+      pt: pt/getting-started.md
+  - doc_key: plans-and-pricing
+    doc_type: manual
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Plans and pricing"
+      pt: "Planos e preços"
+    source:
+      en: en/plans-and-pricing.md
+      pt: pt/plans-and-pricing.md
+    file:
+      en: en/plans-and-pricing.md
+      pt: pt/plans-and-pricing.md
+  - doc_key: billing-and-payments
+    doc_type: manual
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Billing and payments"
+      pt: "Cobrança e pagamentos"
+    source:
+      en: en/billing-and-payments.md
+      pt: pt/billing-and-payments.md
+    file:
+      en: en/billing-and-payments.md
+      pt: pt/billing-and-payments.md
+  - doc_key: end-subscription
+    doc_type: manual
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Ending your subscription"
+      pt: "Como encerrar sua assinatura"
+    source:
+      en: en/end-subscription.md
+      pt: pt/end-subscription.md
+    file:
+      en: en/end-subscription.md
+      pt: pt/end-subscription.md
+  - doc_key: pause-subscription
+    doc_type: manual
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Pausing your subscription"
+      pt: "Como pausar sua assinatura"
+    source:
+      en: en/pause-subscription.md
+      pt: pt/pause-subscription.md
+    file:
+      en: en/pause-subscription.md
+      pt: pt/pause-subscription.md
+  - doc_key: switch-plans
+    doc_type: manual
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Switching between plans"
+      pt: "Como trocar de plano"
+    source:
+      en: en/switch-plans.md
+      pt: pt/switch-plans.md
+    file:
+      en: en/switch-plans.md
+      pt: pt/switch-plans.md
+  - doc_key: orders-and-delivery
+    doc_type: manual
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Orders and delivery"
+      pt: "Pedidos e entrega"
+    source:
+      en: en/orders-and-delivery.md
+      pt: pt/orders-and-delivery.md
+    file:
+      en: en/orders-and-delivery.md
+      pt: pt/orders-and-delivery.md
+  - doc_key: damaged-or-missing-items
+    doc_type: manual
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Damaged or missing items"
+      pt: "Itens danificados ou faltando"
+    source:
+      en: en/damaged-or-missing-items.md
+      pt: pt/damaged-or-missing-items.md
+    file:
+      en: en/damaged-or-missing-items.md
+      pt: pt/damaged-or-missing-items.md
+  - doc_key: account-security
+    doc_type: manual
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Account and security"
+      pt: "Conta e segurança"
+    source:
+      en: en/account-security.md
+      pt: pt/account-security.md
+    file:
+      en: en/account-security.md
+      pt: pt/account-security.md
+  - doc_key: gift-subscriptions
+    doc_type: manual
+    format: pdf
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Gift subscriptions"
+      pt: "Assinaturas de presente"
+    source:
+      en: en/gift-subscriptions.md
+      pt: pt/gift-subscriptions.md
+    file:
+      en: pdf/en/gift-subscriptions.pdf
+      pt: pdf/pt/gift-subscriptions.pdf
+  - doc_key: loyalty-and-referrals
+    doc_type: manual
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Loyalty points and referrals"
+      pt: "Pontos de fidelidade e indicações"
+    source:
+      en: en/loyalty-and-referrals.md
+      pt: pt/loyalty-and-referrals.md
+    file:
+      en: en/loyalty-and-referrals.md
+      pt: pt/loyalty-and-referrals.md
+  - doc_key: refund-policy
+    doc_type: policy
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Refund policy"
+      pt: "Política de reembolso"
+    source:
+      en: en/refund-policy.md
+      pt: pt/refund-policy.md
+    file:
+      en: en/refund-policy.md
+      pt: pt/refund-policy.md
+  - doc_key: terms-of-service
+    doc_type: policy
+    format: pdf
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Terms of service"
+      pt: "Termos de serviço"
+    source:
+      en: en/terms-of-service.md
+      pt: pt/terms-of-service.md
+    file:
+      en: pdf/en/terms-of-service.pdf
+      pt: pdf/pt/terms-of-service.pdf
+  - doc_key: privacy-and-data-retention
+    doc_type: policy
+    format: pdf
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Privacy and data retention policy"
+      pt: "Política de privacidade e retenção de dados"
+    source:
+      en: en/privacy-and-data-retention.md
+      pt: pt/privacy-and-data-retention.md
+    file:
+      en: pdf/en/privacy-and-data-retention.pdf
+      pt: pdf/pt/privacy-and-data-retention.pdf
+  - doc_key: support-escalation-policy
+    doc_type: policy
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Support escalation policy"
+      pt: "Política de escalonamento do suporte"
+    source:
+      en: en/support-escalation-policy.md
+      pt: pt/support-escalation-policy.md
+    file:
+      en: en/support-escalation-policy.md
+      pt: pt/support-escalation-policy.md
+  - doc_key: goodwill-credit-policy
+    doc_type: policy
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Goodwill credit policy"
+      pt: "Política de crédito de cortesia"
+    source:
+      en: en/goodwill-credit-policy.md
+      pt: pt/goodwill-credit-policy.md
+    file:
+      en: en/goodwill-credit-policy.md
+      pt: pt/goodwill-credit-policy.md
+  - doc_key: fraud-and-chargeback-policy
+    doc_type: policy
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Fraud and chargeback policy"
+      pt: "Política de fraude e contestação de cobrança"
+    source:
+      en: en/fraud-and-chargeback-policy.md
+      pt: pt/fraud-and-chargeback-policy.md
+    file:
+      en: en/fraud-and-chargeback-policy.md
+      pt: pt/fraud-and-chargeback-policy.md
+  - doc_key: partner-promotions-bulletin
+    doc_type: policy
+    format: pdf
+    languages: [en, pt]
+    malicious: true
+    title:
+      en: "Partner promotions bulletin"
+      pt: "Boletim de promoções de parceiros"
+    source:
+      en: en/partner-promotions-bulletin.md
+      pt: pt/partner-promotions-bulletin.md
+    file:
+      en: pdf/en/partner-promotions-bulletin.pdf
+      pt: pdf/pt/partner-promotions-bulletin.pdf
+  - doc_key: faq-billing
+    doc_type: faq
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Billing FAQ"
+      pt: "Perguntas frequentes sobre cobrança"
+    source:
+      en: en/faq-billing.md
+      pt: pt/faq-billing.md
+    file:
+      en: en/faq-billing.md
+      pt: pt/faq-billing.md
+  - doc_key: faq-orders-delivery
+    doc_type: faq
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Orders and delivery FAQ"
+      pt: "Perguntas frequentes sobre pedidos e entrega"
+    source:
+      en: en/faq-orders-delivery.md
+      pt: pt/faq-orders-delivery.md
+    file:
+      en: en/faq-orders-delivery.md
+      pt: pt/faq-orders-delivery.md
+  - doc_key: faq-account
+    doc_type: faq
+    format: md
+    languages: [en, pt]
+    malicious: false
+    title:
+      en: "Account FAQ"
+      pt: "Perguntas frequentes sobre a conta"
+    source:
+      en: en/faq-account.md
+      pt: pt/faq-account.md
+    file:
+      en: en/faq-account.md
+      pt: pt/faq-account.md

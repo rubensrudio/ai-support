@@ -26,51 +26,81 @@ The returned async iterator then:
    after the response is sent, so without this commit a failed commit at teardown would leave
    the client with a `message_id` that does not exist, and a quick next turn could miss it.
 
+Phase 03 (TASK-049) adds retrieval-augmented answers. With a `retriever` and
+`settings.retrieval_mode != "none"`, step 5 first retrieves the top-k chunks for the message in
+its detected language (RAG-03):
+
+- `RetrievalUnavailable` → fixed `KNOWLEDGE_UNAVAILABLE` text in the reply language, stored as
+  the assistant reply with `status="complete"`, with no LLM call (RAG-94);
+- otherwise the request comes from `build_request` (CT-31) with the numbered chunks, in the
+  layout of `settings.prompt_layout`. With no chunk (empty index, RAG-90) the LLM is still
+  called and the request carries the instruction to say it does not know (RAG-04);
+- the `[n]` markers of the answer become citations (CT-32): one `CitationEvent` per citation,
+  after the commit and before the `DoneEvent`, folded into `ChatResponse.citations` by
+  `collect`.
+
+Without a retriever, or with `retrieval_mode="none"` (the "without RAG" mode of demo_03), the
+request is the phase-02 one: system prompt, summary block and history window, no citations.
+
 A provider failure (chat or summarisation) becomes `AtlasError(LLM_UNAVAILABLE, 502)` without
 the provider text (CHAT-92), and no assistant message is stored.
 """
 
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.agent.events import AgentEvent, DoneEvent, ErrorEvent
+from api.agent.events import AgentEvent, CitationEvent, DoneEvent, ErrorEvent
 from api.auth.deps import CurrentCustomer
-from api.chat.context import LLMSummarizer, build_history, summary_block
+from api.chat.context import HistoryWindow, LLMSummarizer, build_history, summary_block
 from api.chat.language import detect_language
 from api.chat.models import Conversation
+from api.chat.prompt_builder import (
+    LANGUAGE_NAMES,
+    LANGUAGE_PLACEHOLDER,
+    build_request,
+    system_prompt,
+)
 from api.chat.repository import ConversationRepository
-from api.chat.schemas import ChatRequest, ChatResponse
+from api.chat.schemas import ChatRequest, ChatResponse, Citation
 from api.config import Settings, get_settings
-from api.db.engine import get_db_session
+from api.db.engine import get_db_session, get_sessionmaker
 from api.errors import AtlasError, ErrorCode
 from api.llm.client import LLMClient, LLMError, LLMRequest, SystemBlock
 from api.llm.factory import build_llm_client
 from api.messages import Lang, MessageKey, user_message
 from api.observability.logging import get_trace_id, log_event
-from api.prompts import load_prompt
+from api.rag.citations import extract_citations
+from api.rag.retriever import RetrievalUnavailable, RetrievedChunk, Retriever
+
+__all__ = [
+    "LANGUAGE_NAMES",
+    "LANGUAGE_PLACEHOLDER",
+    "UNSUPPORTED_LANGUAGE_REPLY_LANG",
+    "ChatService",
+    "get_chat_service",
+    "system_prompt",
+]
 
 UNSUPPORTED_LANGUAGE_REPLY_LANG: Lang = "en"
-LANGUAGE_NAMES: dict[Lang, str] = {"en": "English", "pt": "Brazilian Portuguese"}
-LANGUAGE_PLACEHOLDER = "{language}"
-
-
-def system_prompt(language: Lang) -> str:
-    """`prompts/system.md` with `{language}` replaced by the reply language name.
-
-    `str.replace`, not `str.format`: the prompt may contain other braces.
-    """
-    return load_prompt("system").replace(LANGUAGE_PLACEHOLDER, LANGUAGE_NAMES[language])
 
 
 class ChatService:
-    def __init__(self, llm: LLMClient, settings: Settings, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        llm: LLMClient,
+        settings: Settings,
+        session: AsyncSession,
+        retriever: Retriever | None = None,
+    ) -> None:
         self.llm = llm
         self.settings = settings
         self.session = session
+        self.retriever = retriever
         self.repository = ConversationRepository(session)
 
     def handle_message(
@@ -84,9 +114,20 @@ class ChatService:
 
     async def collect(self, events: AsyncIterator[AgentEvent]) -> ChatResponse:
         """Fold an event stream into the JSON response of `POST /chat`."""
+        citations: list[Citation] = []
         async for event in events:
             if isinstance(event, ErrorEvent):
                 raise _error_from_code(event.code)
+            if isinstance(event, CitationEvent):
+                citations.append(
+                    Citation(
+                        index=event.index,
+                        document=event.document,
+                        doc_key=event.doc_key,
+                        section=event.section,
+                        page=event.page,
+                    )
+                )
             if isinstance(event, DoneEvent):
                 return ChatResponse(
                     conversation_id=event.conversation_id,
@@ -94,6 +135,7 @@ class ChatService:
                     status=event.status,
                     content=event.content,
                     language=event.language,
+                    citations=citations,
                     confirmation=event.confirmation,
                     trace_id=event.trace_id,
                 )
@@ -124,18 +166,41 @@ class ChatService:
         )
         await self.session.commit()
 
+        citations: list[Citation] = []
         if detected == "other":
             content = user_message(MessageKey.UNSUPPORTED_LANGUAGE, UNSUPPORTED_LANGUAGE_REPLY_LANG)
             reply_language: Lang = UNSUPPORTED_LANGUAGE_REPLY_LANG
             log_event("chat_unsupported_language", conversation_id=str(conversation.id))
         else:
             reply_language = detected
-            content = await self._llm_reply(conversation, reply_language)
+            try:
+                chunks = await self._retrieve(request.message, reply_language)
+            except RetrievalUnavailable as exc:
+                log_event(
+                    "chat_knowledge_unavailable",
+                    conversation_id=str(conversation.id),
+                    exc_type=type(exc).__name__,
+                )
+                content = user_message(MessageKey.KNOWLEDGE_UNAVAILABLE, reply_language)
+            else:
+                content = await self._llm_reply(
+                    conversation, reply_language, request.message, chunks
+                )
+                if chunks is not None:
+                    citations = extract_citations(content, chunks)
 
         reply = await self.repository.append_message(
             conversation.id, "assistant", content, "complete", reply_language, trace_id
         )
         await self.session.commit()
+        for citation in citations:
+            yield CitationEvent(
+                index=citation.index,
+                document=citation.document,
+                doc_key=citation.doc_key,
+                section=citation.section,
+                page=citation.page,
+            )
         yield DoneEvent(
             status="completed",
             content=content,
@@ -145,7 +210,54 @@ class ChatService:
             message_id=reply.id,
         )
 
-    async def _llm_reply(self, conversation: Conversation, language: Lang) -> str:
+    async def _retrieve(self, message: str, language: Lang) -> list[RetrievedChunk] | None:
+        """Top-k chunks for `message`, or `None` when retrieval is off (no retriever or mode
+        `none`). Raises `RetrievalUnavailable` when the search fails (RAG-94)."""
+        if self.retriever is None or self.settings.retrieval_mode == "none":
+            return None
+        chunks = await self.retriever.retrieve(message, language)
+        log_event(
+            "chat_retrieval",
+            mode=self.settings.retrieval_mode,
+            language=language,
+            chunks=len(chunks),
+        )
+        return chunks
+
+    def _request(
+        self,
+        window: HistoryWindow,
+        language: Lang,
+        message: str,
+        chunks: list[RetrievedChunk] | None,
+    ) -> LLMRequest:
+        if chunks is None:
+            system = [SystemBlock(system_prompt(language))]
+            if window.summary:
+                system.append(summary_block(window.summary))
+            return LLMRequest(system=system, messages=window.messages, purpose="chat")
+        # The window ends with the user message persisted for this turn; `build_request`
+        # appends it itself, after the excerpts, in its `<customer_question>` tag.
+        history = window
+        last = window.messages[-1] if window.messages else None
+        if last is not None and last.role == "user" and last.content == message:
+            history = replace(window, messages=window.messages[:-1])
+        return build_request(
+            language=language,
+            history=history,
+            chunks=chunks,
+            user_message=message,
+            tools=[],
+            layout=self.settings.prompt_layout,
+        )
+
+    async def _llm_reply(
+        self,
+        conversation: Conversation,
+        language: Lang,
+        message: str,
+        chunks: list[RetrievedChunk] | None,
+    ) -> str:
         upto = conversation.summary_upto_message_id
         pending = [
             message
@@ -160,12 +272,7 @@ class ChatService:
                 LLMSummarizer(self.llm),
                 mode=self.settings.history_mode,
             )
-            system = [SystemBlock(system_prompt(language))]
-            if window.summary:
-                system.append(summary_block(window.summary))
-            response = await self.llm.complete(
-                LLMRequest(system=system, messages=window.messages, purpose="chat")
-            )
+            response = await self.llm.complete(self._request(window, language, message, chunks))
         except LLMError as exc:
             log_event(
                 "chat_llm_unavailable",
@@ -205,8 +312,11 @@ def _llm_client() -> LLMClient:
 def get_chat_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ChatService:
-    """FastAPI dependency: the request session plus the cached LLM client.
+    """FastAPI dependency: the request session, the cached LLM client and a retriever.
 
+    The retriever opens its own sessions (`get_sessionmaker`); no embedder in phase 03.
     Tests override it with `app.dependency_overrides`.
     """
-    return ChatService(_llm_client(), get_settings(), session)
+    settings = get_settings()
+    retriever = Retriever(get_sessionmaker(), None, settings)
+    return ChatService(_llm_client(), settings, session, retriever=retriever)

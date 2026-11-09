@@ -48,6 +48,7 @@ class CitationEvent(_Event):
     type: Literal["citation"] = "citation"
     index: int
     document: str
+    doc_key: str | None = None
     section: str | None = None
     page: int | None = None
 

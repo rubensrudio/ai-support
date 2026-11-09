@@ -117,7 +117,9 @@ class Settings(BaseSettings):
 
     # Retrieval
     retrieval_mode: RetrievalMode = Field(
-        default="hybrid", validation_alias=_env("ATLAS_RETRIEVAL_MODE")
+        # Phase 03 default; becomes "hybrid" when phase 05 registers the hybrid searcher.
+        default="fulltext",
+        validation_alias=_env("ATLAS_RETRIEVAL_MODE"),
     )
     retrieval_top_k: int = Field(default=5, gt=0, validation_alias=_env("ATLAS_RETRIEVAL_TOP_K"))
     hnsw_m: int = Field(default=16, validation_alias=_env("ATLAS_HNSW_M"))
