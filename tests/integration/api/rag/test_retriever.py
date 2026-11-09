@@ -9,6 +9,7 @@ from api.config import RetrievalMode, Settings, get_settings
 from api.db.engine import get_sessionmaker
 from api.messages import Lang
 from api.rag import retriever as retriever_module
+from api.rag.embeddings import EmbeddingError, FakeEmbeddingClient
 from api.rag.fulltext import ScoredChunk
 from api.rag.models import TS_CONFIGS, Chunk, Document
 from api.rag.retriever import RetrievalUnavailable, Retriever, register_mode
@@ -216,3 +217,56 @@ async def test_database_failure_becomes_retrieval_unavailable(migrated_database:
         await retriever.retrieve("refund", "en")
 
     assert "SELECT" not in str(caught.value)
+
+
+class _FailingEmbedder:
+    def __init__(self, vectors: list[list[float]] | None = None) -> None:
+        self.vectors = vectors
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        if self.vectors is None:
+            raise EmbeddingError("Embedding provider returned HTTP 500")
+        return self.vectors
+
+
+async def test_embedding_error_becomes_retrieval_unavailable(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    retriever = Retriever(factory, _FailingEmbedder(), _settings(mode="vector_bruteforce"))
+
+    with pytest.raises(RetrievalUnavailable) as caught:
+        await retriever.retrieve("refund", "en")
+
+    assert isinstance(caught.value.__cause__, EmbeddingError)
+    assert "HTTP 500" not in str(caught.value)
+
+
+async def test_embedder_returning_no_vector_becomes_retrieval_unavailable(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    retriever = Retriever(factory, _FailingEmbedder([]), _settings(mode="vector_bruteforce"))
+
+    with pytest.raises(RetrievalUnavailable):
+        await retriever.retrieve("refund", "en")
+
+
+async def test_vector_mode_embeds_the_question_once(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    embedder = FakeEmbeddingClient(get_settings().embedding_dimensions)
+    retriever = Retriever(factory, embedder, _settings(mode="vector_bruteforce"))
+
+    await retriever.retrieve("refund", "en")
+
+    assert embedder.calls == [["refund"]]
+
+
+async def test_text_mode_never_calls_the_embedder(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    embedder = FakeEmbeddingClient(get_settings().embedding_dimensions)
+    retriever = Retriever(factory, embedder, _settings(mode="fulltext"))
+
+    await retriever.retrieve("refund", "en")
+
+    assert embedder.calls == []

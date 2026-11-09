@@ -4,7 +4,23 @@ Reads `corpus/manifest.yaml` and processes every `(doc_key, language)` in a tran
 own, so one bad file never stops the others (RAG-91). Re-ingestion is idempotent (RAG-92): a
 document whose `content_hash` did not change keeps its chunks; a changed one has its chunks
 deleted and inserted again. Each chunk stores its language and `ts_config = TS_CONFIGS[lang]`
-(DA-13). Embeddings arrive in phase 04 and the injection scan (`quarantined`) in phase 10.
+(DA-13). The injection scan (`quarantined`) arrives in phase 10.
+
+Embeddings (phase 04, RAG-07, RAG-93): with an `embedder` and without `skip_embeddings`, the
+vectors of a document are computed before its write, in one batched `embed` call per document,
+so every stored chunk has an embedding. An unchanged document keeps its chunks and only the
+ones whose `embedding` is null (ingested in phase 03 or with `--skip-embeddings`) are embedded;
+when none is null the embedder is not called. Any embedder failure marks the document `failed`
+with `embedding failed: <exception type>` (never the provider message), drops its chunks and
+leaves it reprocessable by the next run. Without an embedder, or with `skip_embeddings`, chunks
+are stored with a null embedding, as in phase 03. With `reembed` (to switch embedders, e.g. fake
+-> OpenAI, without mixing vectors), every chunk of the manifest documents is embedded again,
+including the ones that already have an embedding. A `reembed` run is all-or-nothing per
+document but not per run: the first embedder failure raises `ReembedAborted` before anything of
+that document is written, so it and every document after it keep their chunks, old vectors and
+status (the index, full-text included, stays usable); the documents already processed in that
+run keep their new vectors, and running `--reembed` again finishes the switch. Outside
+`reembed`, an embedder failure fails only its document (RAG-93).
 
 At the end of a run, every `(doc_key, language)` stored in the database but absent from the
 manifest has its chunks deleted and is marked `failed` with `removed from manifest`, so it can
@@ -27,10 +43,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from api.observability.logging import log_event
+from api.rag.embeddings import EmbeddingClient, EmbeddingError
 from api.rag.models import DOC_FORMATS, DOC_TYPES, TS_CONFIGS, Chunk, Document
 from ingest.chunking import TextChunk, chunk_sections
 from ingest.parsers import UnreadableDocument, parse_document
@@ -45,6 +62,35 @@ _PDF_LAYOUTS = ("pdf/{lang}/{key}.pdf", "pdf/{key}.{lang}.pdf", "pdf/{key}-{lang
 
 class ManifestError(Exception):
     """The manifest is missing, is not valid YAML or has an entry without `doc_key`."""
+
+
+class ReembedAborted(RuntimeError):
+    """A `reembed` run stopped at the first embedder failure, leaving the rest untouched.
+
+    The message names only the exception type (`re-embedding aborted: <type>`), never the
+    provider response or the chunk text.
+    """
+
+    def __init__(self, error_type: str) -> None:
+        super().__init__(f"re-embedding aborted: {error_type}")
+        self.error_type = error_type
+
+
+class EmbeddingsOutOfDate(RuntimeError):
+    """The stored document changed between computing its embeddings and writing them."""
+
+
+@dataclass(frozen=True)
+class _Embeddings:
+    """Vectors computed before a document is written.
+
+    `fresh` holds one vector per parsed chunk, for a document whose chunks are (re)written;
+    `missing` maps the id of each stored chunk without embedding of an unchanged document to
+    its vector (empty when every stored chunk already has one).
+    """
+
+    fresh: list[list[float]] | None = None
+    missing: Mapping[int, list[float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -142,15 +188,29 @@ async def ingest_corpus(
     session_factory: async_sessionmaker[AsyncSession],
     *,
     skip_embeddings: bool = False,
+    embedder: EmbeddingClient | None = None,
+    reembed: bool = False,
 ) -> IngestReport:
-    """Ingest every manifest entry × language. `skip_embeddings` is a no-op until phase 04."""
+    """Ingest every manifest entry × language, embedding the chunks unless told not to.
+
+    `reembed` recomputes the embedding of every chunk and needs an `embedder`; it cannot be
+    combined with `skip_embeddings`. It raises `ReembedAborted` at the first embedder failure.
+    """
+    if reembed and (skip_embeddings or embedder is None):
+        raise ValueError("reembed needs an embedder and cannot be combined with skip_embeddings")
+    if skip_embeddings:
+        embedder = None
     report = IngestReport()
     entries = load_manifest(corpus_dir)
     for entry in entries:
         for language in entry.languages:
             path = source_path(corpus_dir, entry, language)
             report.documents.append(
-                _logged(await _ingest_one(session_factory, corpus_dir, entry, language, path))
+                _logged(
+                    await _ingest_one(
+                        session_factory, corpus_dir, entry, language, path, embedder, reembed
+                    )
+                )
             )
     listed = {(entry.doc_key, language) for entry in entries for language in entry.languages}
     for result in await _retire_unlisted(session_factory, listed):
@@ -211,6 +271,8 @@ async def _ingest_one(
     entry: ManifestEntry,
     language: str,
     path: Path,
+    embedder: EmbeddingClient | None,
+    reembed: bool = False,
 ) -> DocumentReport:
     def result(status: str, chunks: int = 0, error: str | None = None) -> DocumentReport:
         return DocumentReport(
@@ -242,8 +304,37 @@ async def _ingest_one(
             session_factory, entry, language, stored_path, content_hash, str(error)
         )
 
+    embeddings: _Embeddings | None = None
+    if embedder is not None:
+        try:
+            missing = await _chunks_to_embed(
+                session_factory, entry.doc_key, language, content_hash, reembed=reembed
+            )
+        except Exception as error:  # same isolation and generic message as a storage error
+            message = f"cannot store {stored_path}: {type(error).__name__}"
+            return await _record_failure(
+                session_factory, entry, language, stored_path, content_hash, message
+            )
+        try:
+            embeddings = await _embed(embedder, chunks, missing)
+        except Exception as error:  # RAG-93: never the provider message, nor the chunk text
+            if reembed:  # stop before dropping a working index over a provider outage
+                log_event(
+                    "ingest_reembed_aborted",
+                    doc_key=entry.doc_key,
+                    language=language,
+                    error_type=type(error).__name__,
+                )
+                raise ReembedAborted(type(error).__name__) from None
+            message = f"embedding failed: {type(error).__name__}"
+            return await _record_failure(
+                session_factory, entry, language, stored_path, content_hash, message
+            )
+
     try:
-        count = await _store(session_factory, entry, language, stored_path, content_hash, chunks)
+        count = await _store(
+            session_factory, entry, language, stored_path, content_hash, chunks, embeddings
+        )
     except Exception as error:  # isolate any storage error to this document (RAG-91)
         # Never str(error): driver messages can carry SQL and chunk content.
         message = f"cannot store {stored_path}: {type(error).__name__}"
@@ -271,6 +362,57 @@ def _stored_path(corpus_dir: Path, path: Path) -> str:
         return path.as_posix()
 
 
+async def _chunks_to_embed(
+    session_factory: async_sessionmaker[AsyncSession],
+    doc_key: str,
+    language: str,
+    content_hash: str,
+    *,
+    reembed: bool,
+) -> list[tuple[int, str]] | None:
+    """`(id, content)` of the stored chunks to embed when the document is unchanged.
+
+    Those without embedding, or all of them with `reembed`. `None` when its chunks will be
+    (re)written: new, changed or previously failed document.
+    """
+    async with session_factory() as session:
+        document = await _find(session, doc_key, language)
+        if document is None or not _is_unchanged(document, content_hash):
+            return None
+        query = select(Chunk.id, Chunk.content).where(Chunk.document_id == document.id)
+        if not reembed:
+            query = query.where(Chunk.embedding.is_(None))
+        rows = await session.execute(query.order_by(Chunk.ordinal))
+        return [(row.id, row.content) for row in rows]
+
+
+async def _embed(
+    embedder: EmbeddingClient,
+    chunks: Sequence[TextChunk],
+    missing: list[tuple[int, str]] | None,
+) -> _Embeddings:
+    """One `embed` call for the texts that need a vector; none when no text does."""
+    if missing is None:
+        return _Embeddings(fresh=await _vectors(embedder, [chunk.content for chunk in chunks]))
+    vectors = await _vectors(embedder, [content for _, content in missing])
+    return _Embeddings(
+        missing={chunk_id: vector for (chunk_id, _), vector in zip(missing, vectors, strict=True)}
+    )
+
+
+async def _vectors(embedder: EmbeddingClient, texts: list[str]) -> list[list[float]]:
+    if not texts:
+        return []
+    vectors = await embedder.embed(texts)
+    if len(vectors) != len(texts):
+        raise EmbeddingError("the provider returned a different number of vectors")
+    return vectors
+
+
+def _is_unchanged(document: Document, content_hash: str) -> bool:
+    return document.status == "indexed" and document.content_hash == content_hash
+
+
 async def _store(
     session_factory: async_sessionmaker[AsyncSession],
     entry: ManifestEntry,
@@ -278,13 +420,19 @@ async def _store(
     stored_path: str,
     content_hash: str,
     chunks: Sequence[TextChunk],
+    embeddings: _Embeddings | None = None,
 ) -> int:
     async with session_factory() as session, session.begin():
         document = await _find(session, entry.doc_key, language)
-        if document is not None and document.status == "indexed":
-            if document.content_hash == content_hash:  # unchanged: keep its chunks (RAG-92)
-                _apply_metadata(document, entry, language, stored_path)
-                return await _count_chunks(session, document.id)
+        if document is not None and _is_unchanged(document, content_hash):
+            # Unchanged: keep its chunks (RAG-92), only filling the missing embeddings.
+            _apply_metadata(document, entry, language, stored_path)
+            if embeddings is not None:
+                await _fill_embeddings(session, document.id, embeddings)
+            return await _count_chunks(session, document.id)
+        vectors = None if embeddings is None else embeddings.fresh
+        if embeddings is not None and vectors is None:
+            raise EmbeddingsOutOfDate  # it changed after its stored chunks were embedded
         document = await _upsert(
             session, document, entry, language, stored_path, content_hash, "indexed", None
         )
@@ -299,10 +447,34 @@ async def _store(
                 page=chunk.page,
                 token_count=chunk.token_count,
                 ts_config=TS_CONFIGS[language],
+                embedding=None if vectors is None else vectors[index],
             )
-            for chunk in chunks
+            for index, chunk in enumerate(chunks)
         )
         return len(chunks)
+
+
+async def _fill_embeddings(
+    session: AsyncSession, document_id: int, embeddings: _Embeddings
+) -> None:
+    """Store the planned vectors (replacing any old one); every chunk must end with one."""
+    if embeddings.fresh is not None:
+        raise EmbeddingsOutOfDate  # computed for a rewrite, but the document is unchanged now
+    for chunk_id, vector in embeddings.missing.items():
+        await session.execute(
+            update(Chunk)
+            .where(Chunk.id == chunk_id, Chunk.document_id == document_id)
+            .values(embedding=vector)
+        )
+    still_missing = (
+        await session.execute(
+            select(func.count())
+            .select_from(Chunk)
+            .where(Chunk.document_id == document_id, Chunk.embedding.is_(None))
+        )
+    ).scalar_one()
+    if still_missing:
+        raise EmbeddingsOutOfDate
 
 
 async def _record_failure(

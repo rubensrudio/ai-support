@@ -75,7 +75,7 @@ from api.llm.factory import build_llm_client
 from api.messages import Lang, MessageKey, user_message
 from api.observability.logging import get_trace_id, log_event
 from api.rag.citations import extract_citations
-from api.rag.embeddings import EmbeddingClient, build_embedder
+from api.rag.embeddings import EmbeddingClient, OpenAIEmbeddingClient, build_embedder
 from api.rag.retriever import RetrievalUnavailable, RetrievedChunk, Retriever, is_vector_mode
 
 __all__ = [
@@ -314,6 +314,15 @@ def _llm_client() -> LLMClient:
 def _embedder() -> EmbeddingClient:
     """One embedding client per process, built from the settings on first use."""
     return build_embedder(get_settings())
+
+
+async def close_embedder() -> None:
+    """Close the cached embedder's HTTP client, if one was built (app shutdown)."""
+    if _embedder.cache_info().currsize:
+        embedder = _embedder()
+        _embedder.cache_clear()
+        if isinstance(embedder, OpenAIEmbeddingClient):
+            await embedder.aclose()
 
 
 def get_chat_service(

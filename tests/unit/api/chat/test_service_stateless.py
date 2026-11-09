@@ -21,6 +21,7 @@ from api.config import Settings, get_settings
 from api.db.engine import get_sessionmaker
 from api.errors import AtlasError, ErrorCode
 from api.llm.fake import FakeLLMClient
+from api.rag.embeddings import EmbeddingClient, FakeEmbeddingClient, OpenAIEmbeddingClient
 from api.rag.retriever import Retriever
 
 PRINCIPAL = CurrentCustomer(
@@ -203,3 +204,63 @@ def test_get_chat_service_builds_a_retriever_from_the_settings() -> None:
 
 def test_retriever_defaults_to_none() -> None:
     assert _service(FakeLLMClient([])).retriever is None
+
+
+@pytest.mark.parametrize(
+    ("mode", "builds_embedder"),
+    [("fulltext", False), ("none", False), ("vector_bruteforce", True)],
+)
+def test_get_chat_service_builds_the_embedder_only_in_vector_modes(
+    monkeypatch: pytest.MonkeyPatch, mode: str, builds_embedder: bool
+) -> None:
+    monkeypatch.setenv("ATLAS_LLM_PROVIDER", "fake")
+    monkeypatch.setenv("ATLAS_EMBEDDING_PROVIDER", "fake")
+    monkeypatch.setenv("ATLAS_RETRIEVAL_MODE", mode)
+    get_settings.cache_clear()
+    service_module._llm_client.cache_clear()
+    service_module._embedder.cache_clear()
+    built: list[Settings] = []
+    real_build = service_module.build_embedder
+
+    def spy(settings: Settings) -> EmbeddingClient:
+        built.append(settings)
+        return real_build(settings)
+
+    monkeypatch.setattr(service_module, "build_embedder", spy)
+    try:
+        first = get_chat_service(AsyncSession())
+        second = get_chat_service(AsyncSession())
+    finally:
+        service_module._embedder.cache_clear()
+        service_module._llm_client.cache_clear()
+        get_settings.cache_clear()
+
+    assert first.retriever is not None and second.retriever is not None
+    if builds_embedder:
+        assert isinstance(first.retriever.embedder, FakeEmbeddingClient)
+        assert first.retriever.embedder is second.retriever.embedder
+        assert len(built) == 1
+    else:
+        assert first.retriever.embedder is None
+        assert built == []
+
+
+async def test_close_embedder_closes_the_cached_openai_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed: list[bool] = []
+
+    async def fake_aclose(self: OpenAIEmbeddingClient) -> None:
+        closed.append(True)
+
+    monkeypatch.setattr(OpenAIEmbeddingClient, "aclose", fake_aclose)
+    client = OpenAIEmbeddingClient(get_settings())
+    monkeypatch.setattr(service_module, "build_embedder", lambda settings: client)
+    service_module._embedder.cache_clear()
+    service_module._embedder()
+
+    await service_module.close_embedder()
+    await service_module.close_embedder()
+
+    assert closed == [True]
+    assert service_module._embedder.cache_info().currsize == 0
