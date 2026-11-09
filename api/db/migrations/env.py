@@ -8,9 +8,11 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+import api.agent.models  # noqa: F401
 import api.auth.models  # noqa: F401  (register tables on Base.metadata)
 import api.chat.models  # noqa: F401
 import api.rag.models  # noqa: F401
+import api.tools.models  # noqa: F401
 from api.config import get_settings
 from api.db.engine import Base
 
