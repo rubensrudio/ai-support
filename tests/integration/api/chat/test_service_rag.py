@@ -9,7 +9,7 @@ from chat_helpers import CustomerFactory, principal_of
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.agent.events import CitationEvent, DoneEvent
+from api.agent.events import CitationEvent, DoneEvent, StartEvent, TokenEvent
 from api.chat.models import Conversation
 from api.chat.prompt_builder import NO_EXCERPTS_INSTRUCTION, system_prompt
 from api.chat.repository import ConversationRepository
@@ -141,6 +141,8 @@ async def test_citation_events_come_before_the_done_event(
         async for event in service.handle_message(
             ChatRequest(message=QUESTION), principal_of(await make_customer())
         )
+        # Phase 09: `start` and `token` events are covered by test_streaming_cancel.py.
+        if not isinstance(event, TokenEvent | StartEvent)
     ]
 
     assert [type(event) for event in events] == [CitationEvent, DoneEvent]

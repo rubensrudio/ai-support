@@ -25,19 +25,66 @@
       [attr.aria-busy]="sending()"
     >
       @for (turn of turns(); track turn.id) {
-        <article
-          class="chat-message"
-          [class.chat-message--user]="turn.role === 'user'"
-          [class.chat-message--assistant]="turn.role === 'assistant'"
-        >
-          <span class="chat-message__author">
-            {{ turn.role === 'user' ? i18n.t('chat.you') : i18n.t('chat.assistant') }}
-          </span>
-          @if (statusLabel(turn.status); as label) {
-            <span class="chat-message__status" [attr.data-status]="turn.status">{{ label }}</span>
-          }
-          <p class="chat-message__content">{{ turn.content }}</p>
-        </article>
+        @if (visible(turn)) {
+          <article
+            class="chat-message"
+            [class.chat-message--user]="turn.role === 'user'"
+            [class.chat-message--assistant]="turn.role === 'assistant'"
+            [class.chat-message--streaming]="turn.phase === 'streaming'"
+            [class.chat-message--cancelled]="turn.phase === 'cancelled'"
+            [class.chat-message--failed]="turn.phase === 'failed'"
+            [attr.data-phase]="turn.phase"
+          >
+            <span class="chat-message__author">
+              {{ turn.role === 'user' ? i18n.t('chat.you') : i18n.t('chat.assistant') }}
+            </span>
+            @if (statusLabel(turn.status); as label) {
+              <span class="chat-message__status" [attr.data-status]="turn.status">{{ label }}</span>
+            }
+            @if (turn.phase === 'cancelled') {
+              <span class="chat-message__status" data-status="cancelled">{{
+                i18n.t('chat.cancelled')
+              }}</span>
+            }
+            @if (turn.content) {
+              <p class="chat-message__content">{{ turn.content }}</p>
+            }
+            @if (turn.sources.length) {
+              <ol class="chat-sources">
+                @for (source of turn.sources; track source.index) {
+                  <li class="chat-sources__item" [attr.data-index]="source.index">
+                    <span class="chat-sources__index" aria-hidden="true">[{{ source.index }}]</span>
+                    <cite class="chat-sources__document">{{ source.document }}</cite>
+                    @if (source.section) {
+                      <span class="chat-sources__section">{{ source.section }}</span>
+                    }
+                    @if (source.page !== null) {
+                      <span class="chat-sources__page">{{
+                        i18n.t('chat.sourcePage', { page: source.page })
+                      }}</span>
+                    }
+                  </li>
+                }
+              </ol>
+            }
+            @if (turn.phase === 'failed') {
+              <div class="chat-message__failure">
+                <p class="chat-message__error" role="alert">{{ i18n.t('chat.error') }}</p>
+                @if (retry()?.turnId === turn.id) {
+                  <button
+                    type="button"
+                    class="button button--ghost button--small"
+                    data-action="retry"
+                    [disabled]="locked()"
+                    (click)="onRetry()"
+                  >
+                    {{ i18n.t('chat.retry') }}
+                  </button>
+                }
+              </div>
+            }
+          </article>
+        }
         @if (pending(); as pendingAction) {
           @if (pendingAction.turnId === turn.id) {
             <app-confirmation-card
@@ -51,9 +98,9 @@
         <p class="chat__empty muted">{{ i18n.t('chat.empty') }}</p>
       }
       @if (sending()) {
-        <p class="chat__typing" role="status">
+        <p class="chat__typing" role="status" [class.chat__typing--step]="step() !== null">
           <span class="chat__dots" aria-hidden="true"><span></span><span></span><span></span></span>
-          {{ deciding() ? i18n.t('confirm.sending') : i18n.t('chat.sending') }}
+          {{ progressText() }}
         </p>
       }
     </div>
@@ -92,6 +139,16 @@
         >
           {{ i18n.t('chat.counter', { count: length(), max: maxChars }) }}
         </span>
+        @if (sending()) {
+          <button
+            type="button"
+            class="button button--ghost"
+            data-action="cancel"
+            (click)="cancel()"
+          >
+            {{ i18n.t('chat.cancel') }}
+          </button>
+        }
         <button
           class="button button--primary"
           type="submit"

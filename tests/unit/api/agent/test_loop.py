@@ -14,6 +14,7 @@ from api.agent.events import (
     AgentEvent,
     ConfirmationPrompt,
     DoneEvent,
+    TokenEvent,
     ToolEndEvent,
     ToolStartEvent,
 )
@@ -208,7 +209,9 @@ def _turn(fx: Fixture, ctx: ToolContext | None = None) -> AgentTurn:
 
 
 async def _collect(stream: AsyncIterator[AgentEvent]) -> list[AgentEvent]:
-    return [event async for event in stream]
+    # Phase 09: the loop streams `token` events (covered by test_loop_streaming.py); these
+    # phase-06 tests check the tool and terminal events, so the tokens are left out.
+    return [event async for event in stream if not isinstance(event, TokenEvent)]
 
 
 def _tool_messages(request: LLMRequest) -> list[ChatMessage]:

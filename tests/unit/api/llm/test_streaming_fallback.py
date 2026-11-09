@@ -82,3 +82,25 @@ async def test_not_implemented_after_the_first_event_propagates() -> None:
     with pytest.raises(NotImplementedError):
         await _collect(llm)
     assert llm.completed == 0
+
+
+async def test_closing_early_closes_the_provider_stream() -> None:
+    closed: list[bool] = []
+
+    class _Long(_NoStream):
+        def stream(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
+            async def gen() -> AsyncIterator[LLMStreamEvent]:
+                try:
+                    for i in range(10):
+                        yield LLMStreamEvent(kind="text_delta", text=str(i))
+                finally:
+                    closed.append(True)
+
+            return gen()
+
+    outer = stream_or_complete(_Long(), REQUEST)
+    assert (await anext(outer)).text == "0"
+    assert (await anext(outer)).text == "1"
+    await outer.aclose()
+
+    assert closed == [True]

@@ -1,28 +1,34 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
-import { Subject, of, throwError } from 'rxjs';
+import { Observable, Subject, of, throwError } from 'rxjs';
 
 import { AuthService } from '../../core/auth/auth.service';
-import { ChatApiService } from '../../core/chat/chat-api.service';
-import { ChatResponse, MAX_MESSAGE_CHARS } from '../../core/chat/chat.models';
+import { ChatStreamService } from '../../core/chat/chat-stream.service';
+import { DoneStreamEvent, MAX_MESSAGE_CHARS, StreamEvent } from '../../core/chat/chat.models';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { MESSAGES } from '../../core/i18n/messages';
 import { ChatPage } from './chat.page';
 
 const CONVERSATION = '22222222-2222-2222-2222-222222222222';
 
-function reply(content: string): ChatResponse {
+// Since phase 09 the page sends through `ChatStreamService` (CT-51) instead of
+// `ChatApiService.send`; a reply is a `token` followed by the terminal `done`.
+function done(content: string): DoneStreamEvent {
   return {
-    conversation_id: CONVERSATION,
-    message_id: 1,
+    type: 'done',
     status: 'completed',
-    content,
-    language: 'en',
-    citations: [],
-    confirmation: null,
+    message_id: 1,
+    conversation_id: CONVERSATION,
     trace_id: 'trace',
+    language: 'en',
+    content,
+    confirmation: null,
   };
+}
+
+function reply(content: string): Observable<StreamEvent> {
+  return of<StreamEvent[]>({ type: 'token', text: content }, done(content));
 }
 
 describe('ChatPage', () => {
@@ -52,14 +58,14 @@ describe('ChatPage', () => {
 
   beforeEach(async () => {
     localStorage.clear();
-    send = vi.fn(() => of(reply('Hi, I am Atlas.')));
+    send = vi.fn(() => reply('Hi, I am Atlas.'));
     logout = vi.fn(() => of(undefined));
     clear = vi.fn();
     await TestBed.configureTestingModule({
       imports: [ChatPage],
       providers: [
         provideRouter([]),
-        { provide: ChatApiService, useValue: { send } },
+        { provide: ChatStreamService, useValue: { stream: send } },
         { provide: AuthService, useValue: { logout, clear } },
       ],
     }).compileComponents();
@@ -122,7 +128,7 @@ describe('ChatPage', () => {
     expect(thread?.textContent).toContain('Hi, I am Atlas.');
     expect(host.querySelector<HTMLTextAreaElement>('#chat-input')?.value).toBe('');
 
-    send.mockReturnValue(of(reply('Second answer')));
+    send.mockReturnValue(reply('Second answer'));
     type('Again');
     await submit();
 
@@ -135,7 +141,7 @@ describe('ChatPage', () => {
   });
 
   it('disables the form while a message is being sent', async () => {
-    const pending = new Subject<ChatResponse>();
+    const pending = new Subject<StreamEvent>();
     send.mockReturnValue(pending);
     type('Hello');
     await submit();
@@ -143,12 +149,13 @@ describe('ChatPage', () => {
     expect(host.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
     expect(host.textContent).toContain(MESSAGES.en['chat.sending']);
 
-    pending.next(reply('Done'));
+    pending.next(done('Done'));
     pending.complete();
     await render();
     expect(host.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false);
   });
 
+  // A refusal before the stream opens keeps the specific message and gives the draft back.
   it('shows a friendly error and restores the draft when the API fails', async () => {
     send.mockReturnValue(
       throwError(

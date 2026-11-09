@@ -40,6 +40,7 @@ from api.db.engine import dispose_engine
 from api.llm.client import LLMClient, LLMRequest, LLMResponse, LLMStreamEvent, Usage
 from api.llm.fake import FAKE_MODEL, FAKE_PROVIDER
 from api.llm.instrumented import InstrumentedLLMClient
+from api.llm.streaming import stream_or_complete
 from api.llm.tokens import count_messages, count_tokens
 from demos.common import ROOT_DIR, build_demo_llm, parse_demo_args, record_result
 from demos.demo_01_stateless import (
@@ -130,7 +131,21 @@ class RecordingLLMClient:
         return response
 
     def stream(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
-        return self.inner.stream(request)
+        return self._stream(request)
+
+    async def _stream(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
+        # The chat streams since phase 09: record the call when its usage arrives.
+        async for event in stream_or_complete(self.inner, request):
+            if event.kind == "usage" and event.usage is not None:
+                self.calls.append(
+                    CallRecord(
+                        purpose=request.purpose,
+                        history_tokens=history_tokens(request),
+                        input_tokens=event.usage.input_tokens,
+                        output_tokens=event.usage.output_tokens,
+                    )
+                )
+            yield event
 
 
 class ContextAwareFakeLLM:

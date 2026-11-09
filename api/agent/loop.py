@@ -46,13 +46,40 @@ phase 06 loads with an empty cost and repeat history.
   successful audited actions of every request of the logical turn (`trace_ids`: the `run` and
   each `resume`, oldest first, read through `audit_reader`), without a new model call, and logs
   `agent_limit{reason, steps, cost_usd, unknown_cost_calls}` (AGT-08).
+
+Phase 09 streaming (TASK-094, STR-01, STR-05, STR-91): every model call goes through
+`stream_or_complete(llm, request)`. Each non-empty `text_delta` is emitted at once as a
+`TokenEvent`; the deltas, `tool_call`s, `usage` and `stop` are folded into one `LLMResponse`, so
+the phase 06/07 semantics (guards, precheck, confirmation, savepoints, `AgentState`) are
+unchanged.
+- Text that precedes tool calls in the same response is streamed too: the loop cannot know a
+  tool call follows until it arrives, and holding text back would defeat streaming. It stays in
+  the assistant message sent back to the model, as before. The final `done.content` is still the
+  text of the last model call (what is stored as the answer); nothing is emitted after `done`.
+- Cost identity: a provider without streaming (the CLI adapters) falls back to `complete()`,
+  and the loop charges that response's own `model`/`provider`. A streamed call carries no
+  identity, so the loop takes the client's `model`/`provider` attributes
+  (`InstrumentedLLMClient` has them), else `settings.llm_provider` and
+  `settings.primary_model` (`fake-model` for the `fake` provider, as the factory does). A stream
+  that ends without `usage` is charged as zero tokens and logged as `agent_stream_without_usage`.
+- Limits after a streamed call (round 1): when the cost limit discards a final answer (or the
+  step limit discards a response with tool calls), the tokens of that call were already sent;
+  the `done{status: 'limit_reached'}` that follows replaces them with the limit message, which
+  is what the chat service stores.
+- Cancellation (`asyncio.CancelledError` while the model streams, or `GeneratorExit` when the
+  consumer closes the stream) is not handled here: it propagates, and the chat service persists
+  the partial answer (STR-07, LAC-16). `partial_text` is that partial: the text streamed by the
+  model call in progress (or by the final answer just streamed). It is cleared when a call ends
+  with tool calls (its text is a preamble, not glued to the answer that follows) and when a
+  limit discards the call, so a discarded text is never stored as the partial answer.
 """
 
 import copy
 import json
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Literal, cast
 
@@ -61,6 +88,7 @@ from api.agent.events import (
     ChatStatus,
     ConfirmationPrompt,
     DoneEvent,
+    TokenEvent,
     ToolEndEvent,
     ToolStartEvent,
 )
@@ -71,11 +99,15 @@ from api.llm.client import (
     LLMClient,
     LLMRequest,
     LLMResponse,
+    LLMStreamEvent,
     SystemBlock,
     ToolCall,
     ToolSpec,
+    Usage,
 )
+from api.llm.fake import FAKE_MODEL, FAKE_PROVIDER
 from api.llm.pricing import UnknownModelPricing, estimate_cost
+from api.llm.streaming import stream_or_complete
 from api.messages import Lang, MessageKey, user_message
 from api.observability.logging import log_event
 from api.tools.registry import ToolContext, ToolErrorCode, ToolRegistry, ToolResult
@@ -128,6 +160,31 @@ class AgentTurn:
 
 
 AuditReader = Callable[[str], Awaitable[list[Any]]]
+
+
+# --- streams ---------------------------------------------------------------------------------
+
+
+async def aclose_stream(stream: AsyncIterator[Any]) -> None:
+    """`aclose()` the stream when it has one (async generators do)."""
+    aclose = getattr(stream, "aclose", None)
+    if callable(aclose):
+        await cast(Callable[[], Awaitable[object]], aclose)()
+
+
+@asynccontextmanager
+async def closing_stream[T](stream: AsyncIterator[T]) -> AsyncIterator[AsyncIterator[T]]:
+    """Close `stream` when the block exits, however it exits.
+
+    Leaving an `async for` (a `break`, or `GeneratorExit` thrown at an outer `yield` by
+    `aclose()`) does not close the generator being iterated: it would be finalised later, in
+    another task. Every nested stream of the loop and the chat service is closed this way, so a
+    cancellation reaches the provider stream and the service's cleanup right away (STR-91).
+    """
+    try:
+        yield stream
+    finally:
+        await aclose_stream(stream)
 
 
 # --- (de)serialisation -----------------------------------------------------------------------
@@ -374,6 +431,36 @@ class _Run:
         return any(_canonical(name, args) == key for name, args in self.refused_calls)
 
 
+class _RecordingClient:
+    """Delegates to `inner`; keeps the response of a `complete()` call (the fallback of
+    `stream_or_complete`), so a non-streaming provider is charged with its own identity."""
+
+    def __init__(self, inner: LLMClient) -> None:
+        self.inner = inner
+        self.response: LLMResponse | None = None
+
+    async def complete(self, request: LLMRequest) -> LLMResponse:
+        self.response = await self.inner.complete(request)
+        return self.response
+
+    def stream(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
+        return self.inner.stream(request)
+
+
+@dataclass
+class _CallResult:
+    response: LLMResponse = field(
+        default_factory=lambda: LLMResponse(
+            text="",
+            tool_calls=[],
+            usage=Usage(input_tokens=0, output_tokens=0),
+            model="",
+            provider="",
+            stop_reason=None,
+        )
+    )
+
+
 # --- loop ------------------------------------------------------------------------------------
 
 
@@ -389,8 +476,24 @@ class AgentLoop:
         self.registry = registry
         self.settings = settings
         self.audit_reader = audit_reader
+        self._streamed: list[str] = []
+        self._resumed_settled = True
+
+    @property
+    def partial_text(self) -> str:
+        """Text streamed so far by the current model call (see the module docstring)."""
+        return "".join(self._streamed)
+
+    @property
+    def resumed_call_settled(self) -> bool:
+        """False from `resume(..., 'confirm')` until the handler of the confirmed call has run
+        (set right after it returns, before its `tool_end`). A refusal settles at once (no tool
+        runs) and `run` has nothing to settle. The chat service commits a cancelled resume only
+        once this is True, so a confirmation is never stored as confirmed without its tool."""
+        return self._resumed_settled
 
     def run(self, turn: AgentTurn) -> AsyncIterator[AgentEvent]:
+        self._streamed = []
         return self._drive(
             _Run.start(turn, self.settings), turn.ctx, turn.suspend, turn.conversation_id
         )
@@ -404,6 +507,8 @@ class AgentLoop:
         suspend: SuspendFn,
         conversation_id: uuid.UUID | None = None,
     ) -> AsyncIterator[AgentEvent]:
+        self._streamed = []
+        self._resumed_settled = decision != "confirm"
         run = _Run.restore(state, self.settings)
         run.add_trace(ctx.trace_id)
         if run.pending_call is None:
@@ -424,13 +529,15 @@ class AgentLoop:
         run.pending_call = None
         if decision == "confirm":
             # Identity comes from the current session's ctx, never from the stored state.
-            async for event in self._execute(run, call, ctx):
-                yield event
+            async with closing_stream(self._execute(run, call, ctx, settles=True)) as executed:
+                async for event in executed:
+                    yield event
         else:
             run.refused_calls.append((call.name, copy.deepcopy(call.arguments)))
             run.messages.append(_result_message(call, _error_payload(CUSTOMER_REFUSED_RESULT)))
-        async for event in self._drive(run, ctx, suspend, conversation_id):
-            yield event
+        async with closing_stream(self._drive(run, ctx, suspend, conversation_id)) as driven:
+            async for event in driven:
+                yield event
 
     async def _drive(
         self,
@@ -439,54 +546,134 @@ class AgentLoop:
         suspend: SuspendFn,
         conversation_id: uuid.UUID | None,
     ) -> AsyncIterator[AgentEvent]:
+        """Pending tool calls, then one model call, until a `done` (always the last event)."""
         while True:
-            while run.remaining_calls:
-                call = run.remaining_calls.pop(0)
-                # AGT-09/AGT-10: checked before any execution, precheck or suspension.
-                outcome = self._repeat_outcome(run, call)
-                if outcome == "terminate":
-                    yield await self._limit("repeat_limit", run, ctx, conversation_id)
-                    return
-                if outcome == "answered":
-                    continue
-                if not self.registry.is_destructive(call.name):
-                    async for event in self._execute(run, call, ctx):
+            for step in (
+                self._run_calls(run, ctx, suspend, conversation_id),
+                self._model_step(run, ctx, conversation_id),
+            ):
+                async with closing_stream(step) as events:
+                    async for event in events:
                         yield event
-                    continue
-                if run.was_refused(call):
-                    # TOOL-14: no execution and no new confirmation for a refused repeat.
-                    run.messages.append(
-                        _result_message(call, _error_payload(ToolErrorCode.ACTION_ALREADY_REFUSED))
-                    )
-                    continue
-                # Read-only precheck: a call that would be refused anyway (another customer's or
-                # a non-cancellable order, a non-eligible refund) goes back to the model without
-                # a confirmation card. The handler re-checks atomically after confirmation.
-                refusal = await self._guarded(call, ctx, self.registry.precheck)
-                if refusal is not None:
-                    yield ToolStartEvent(
-                        call_id=call.id, tool=call.name, label_key=self._label(call)
-                    )
-                    run.messages.append(_result_message(call, _result_payload(refusal)))
-                    yield ToolEndEvent(call_id=call.id, tool=call.name, ok=refusal.ok)
-                    continue
-                # TOOL-05: suspend; the handler only runs from `resume(..., 'confirm')`.
-                run.pending_call = call
-                prompt = await suspend(call, run.to_state())
-                yield self._done("awaiting_confirmation", ctx, conversation_id, confirmation=prompt)
-                return
+                        if isinstance(event, DoneEvent):
+                            return
 
-            reason = self._step(run)
-            if reason is None:
-                response = await self.llm.complete(run.request())
-                run.record_response(response)
-                reason = self._after_call(run, response)
-                if reason is None and not response.tool_calls:
-                    yield self._done("completed", ctx, conversation_id, content=response.text)
-                    return
-            if reason is not None:
-                yield await self._limit(reason, run, ctx, conversation_id)
+    async def _run_calls(
+        self,
+        run: _Run,
+        ctx: ToolContext,
+        suspend: SuspendFn,
+        conversation_id: uuid.UUID | None,
+    ) -> AsyncIterator[AgentEvent]:
+        """Process `run.remaining_calls`; ends with a `done` when the turn stops here (repeat
+        limit or a suspension for confirmation)."""
+        while run.remaining_calls:
+            call = run.remaining_calls.pop(0)
+            # AGT-09/AGT-10: checked before any execution, precheck or suspension.
+            outcome = self._repeat_outcome(run, call)
+            if outcome == "terminate":
+                yield await self._limit("repeat_limit", run, ctx, conversation_id)
                 return
+            if outcome == "answered":
+                continue
+            if not self.registry.is_destructive(call.name):
+                async with closing_stream(self._execute(run, call, ctx)) as executed:
+                    async for event in executed:
+                        yield event
+                continue
+            if run.was_refused(call):
+                # TOOL-14: no execution and no new confirmation for a refused repeat.
+                run.messages.append(
+                    _result_message(call, _error_payload(ToolErrorCode.ACTION_ALREADY_REFUSED))
+                )
+                continue
+            # Read-only precheck: a call that would be refused anyway (another customer's or
+            # a non-cancellable order, a non-eligible refund) goes back to the model without
+            # a confirmation card. The handler re-checks atomically after confirmation.
+            refusal = await self._guarded(call, ctx, self.registry.precheck)
+            if refusal is not None:
+                yield ToolStartEvent(call_id=call.id, tool=call.name, label_key=self._label(call))
+                run.messages.append(_result_message(call, _result_payload(refusal)))
+                yield ToolEndEvent(call_id=call.id, tool=call.name, ok=refusal.ok)
+                continue
+            # TOOL-05: suspend; the handler only runs from `resume(..., 'confirm')`.
+            run.pending_call = call
+            prompt = await suspend(call, run.to_state())
+            yield self._done("awaiting_confirmation", ctx, conversation_id, confirmation=prompt)
+            return
+
+    async def _model_step(
+        self, run: _Run, ctx: ToolContext, conversation_id: uuid.UUID | None
+    ) -> AsyncIterator[AgentEvent]:
+        """One model call (its tokens), guarded by the limits; ends with a `done` for a final
+        answer or a limit, and without one when the response asks for tools."""
+        reason = self._step(run)
+        if reason is None:
+            call_result = _CallResult()
+            async with closing_stream(self._call_model(run.request(), call_result)) as model:
+                async for event in model:
+                    yield event
+            response = call_result.response
+            run.record_response(response)
+            reason = self._after_call(run, response)
+            if response.tool_calls or reason is not None:
+                # A preamble before tools, or a call discarded by a limit: not a partial.
+                self._streamed.clear()
+            if reason is None and not response.tool_calls:
+                yield self._done("completed", ctx, conversation_id, content=response.text)
+                return
+        if reason is not None:
+            yield await self._limit(reason, run, ctx, conversation_id)
+
+    async def _call_model(
+        self, request: LLMRequest, result: "_CallResult"
+    ) -> AsyncIterator[AgentEvent]:
+        """Stream one model call: a `TokenEvent` per non-empty delta; the folded response is
+        left in `result.response` once the stream ends."""
+        recorder = _RecordingClient(self.llm)
+        self._streamed.clear()
+        parts: list[str] = []
+        calls: list[ToolCall] = []
+        usage: Usage | None = None
+        stop_reason: str | None = None
+        async with closing_stream(stream_or_complete(recorder, request)) as source:
+            async for event in source:
+                if event.kind == "text_delta" and event.text:
+                    parts.append(event.text)
+                    self._streamed.append(event.text)
+                    yield TokenEvent(text=event.text)
+                elif event.kind == "tool_call" and event.tool_call is not None:
+                    calls.append(event.tool_call)
+                elif event.kind == "usage" and event.usage is not None:
+                    usage = event.usage
+                elif event.kind == "stop":
+                    stop_reason = event.stop_reason
+        if recorder.response is not None:
+            # Fallback without streaming: the provider's own response, identity included.
+            result.response = recorder.response
+            return
+        if usage is None:
+            log_event("agent_stream_without_usage")
+            usage = Usage(input_tokens=0, output_tokens=0)
+        model, provider = self._identity()
+        result.response = LLMResponse(
+            text="".join(parts),
+            tool_calls=calls,
+            usage=usage,
+            model=model,
+            provider=provider,
+            stop_reason=stop_reason,
+        )
+
+    def _identity(self) -> tuple[str, str]:
+        """`(model, provider)` charged for a streamed call (the stream does not carry them)."""
+        provider = getattr(self.llm, "provider", None)
+        if not isinstance(provider, str) or not provider:
+            provider = str(self.settings.llm_provider)
+        model = getattr(self.llm, "model", None)
+        if not isinstance(model, str) or not model:
+            model = self.settings.primary_model or (FAKE_MODEL if provider == FAKE_PROVIDER else "")
+        return model, provider
 
     def _repeat_outcome(
         self, run: _Run, call: ToolCall
@@ -563,10 +750,13 @@ class AgentLoop:
         )
 
     async def _execute(
-        self, run: _Run, call: ToolCall, ctx: ToolContext
+        self, run: _Run, call: ToolCall, ctx: ToolContext, *, settles: bool = False
     ) -> AsyncIterator[AgentEvent]:
+        """Run one tool; `settles` marks the confirmed call of a resume as executed."""
         yield ToolStartEvent(call_id=call.id, tool=call.name, label_key=self._label(call))
         result = await self._guarded(call, ctx, self.registry.execute)
+        if settles:
+            self._resumed_settled = True
         run.messages.append(_result_message(call, _result_payload(result)))
         yield ToolEndEvent(call_id=call.id, tool=call.name, ok=result.ok)
 

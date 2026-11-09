@@ -57,6 +57,13 @@ export interface ConfirmationRequest {
  * Server-sent events of `POST /chat/stream` and `POST /chat/confirmations/{id}/stream` (CT-76),
  * mirroring `api/agent/events.py` (CT-45). The SSE `event:` name equals `type`.
  */
+/** First event of a stream: conversation and trace of the turn, before any token. */
+export interface StartStreamEvent {
+  type: 'start';
+  conversation_id: string | null;
+  trace_id: string;
+}
+
 export interface TokenStreamEvent {
   type: 'token';
   text: string;
@@ -104,6 +111,7 @@ export interface ErrorStreamEvent {
 }
 
 export type StreamEvent =
+  | StartStreamEvent
   | TokenStreamEvent
   | ToolStartStreamEvent
   | ToolEndStreamEvent

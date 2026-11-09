@@ -68,15 +68,52 @@ provider takes tools (`codex_cli` does not: it runs the plain chat and logs
   `ToolContext` and stores the answer like `handle_message`. The resolution, the tool effects
   and the answer are committed together, before the `done`: if the model fails after the
   tool ran, everything rolls back and the confirmation is still pending.
+
+Phase 09 (TASK-094, STR-01, STR-03, STR-04, STR-07, STR-91, STR-92, LAC-16): the agent loop
+streams, so the service forwards its `token` events as they come: a turn with tools emits
+`tool_start, tool_end, token+, citation, done` (citations after the commit, before `done`, as
+before). The plain chat path (tools off or a provider without tools) still makes one
+`complete()` call and emits no `token` (its `done.content` carries the answer).
+
+Round 1: every stream of `handle_message` and `resolve_confirmation` starts with a
+`StartEvent{conversation_id, trace_id}`, emitted once the user message is committed and the
+conversation exists (for a confirmation, once it is resolved, with its conversation id), before
+any token or tool event; `collect` ignores it.
+
+Cancellation: when the stream is cancelled while the agent loop runs (`asyncio.CancelledError`
+raised inside the generator, e.g. the task is cancelled while the model streams) or the consumer
+closes it early (`GeneratorExit` from `aclose()`, which the SSE route does on disconnect), the
+service, before re-raising:
+- stores the partial answer, the text streamed by the model call in progress
+  (`AgentLoop.partial_text`: not the preamble of earlier calls that asked for tools, nor a
+  text discarded by a limit), as an assistant message with `status='cancelled'` (it is part of
+  the history of the next turns); nothing is stored when that text is empty, so the history
+  never gets an empty assistant turn;
+- commits, so the tools that already ran keep their effects and audit rows, together with the
+  partial (on the confirmation path the resolution is committed as well);
+- emits nothing (no `done`).
+On the confirmation path (round 3) the resolution is committed only once the confirmed tool
+has run (`AgentLoop.resumed_call_settled`): a cancellation before that (right after `start`, or
+at the confirmed call's `tool_start`) rolls back under the same shield, so the confirmation
+goes back to pending, the order is untouched and nothing is audited; it is never committed at
+teardown as `confirmed` without its tool. A refusal settles at once (no tool runs).
+The persistence runs inside `anyio.CancelScope(shield=True)`: Starlette cancels a streaming
+response through an anyio cancel scope, which re-delivers the cancellation at every `await`; the
+shield lets the commit finish on the request session (no second session is needed and no task
+outlives the request). A failure while persisting is logged (`chat_cancel_persist_failed`) and
+the cancellation still propagates. Once the answer is committed (the first event of `_finish`),
+a cancellation changes nothing (STR-92).
 """
 
+import asyncio
 import uuid
-from collections.abc import AsyncIterator
-from dataclasses import replace
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import cache, lru_cache
 from typing import Annotated, Any, cast
 
+import anyio
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,8 +125,18 @@ from api.agent.events import (
     ConfirmationPrompt,
     DoneEvent,
     ErrorEvent,
+    StartEvent,
 )
-from api.agent.loop import AgentLoop, AgentState, AgentTurn, Decision, SuspendFn
+from api.agent.loop import (
+    AgentLoop,
+    AgentState,
+    AgentTurn,
+    Decision,
+    SuspendFn,
+    aclose_stream,
+    closing_stream,
+)
+from api.agent.models import PendingConfirmation
 from api.auth.deps import CurrentCustomer
 from api.chat.context import HistoryWindow, LLMSummarizer, build_history, summary_block
 from api.chat.language import detect_language
@@ -200,6 +247,12 @@ class ChatService:
     async def collect(self, events: AsyncIterator[AgentEvent]) -> ChatResponse:
         """Fold an event stream into the JSON response of `POST /chat`."""
         citations: list[Citation] = []
+        async with closing_stream(events) as stream:
+            return await self._fold(stream, citations)
+
+    async def _fold(
+        self, events: AsyncIterator[AgentEvent], citations: list[Citation]
+    ) -> ChatResponse:
         async for event in events:
             if isinstance(event, ErrorEvent):
                 raise _error_from_code(event.code)
@@ -254,6 +307,9 @@ class ChatService:
             conversation.id, "user", request.message, "complete", detected, trace_id
         )
         await self.session.commit()
+        # Round 1: the first event, once the user message is committed and the conversation
+        # exists, before any token or tool (the JSON `collect` ignores it).
+        yield StartEvent(conversation_id=conversation.id, trace_id=trace_id)
 
         if detected == "other":
             content = user_message(MessageKey.UNSUPPORTED_LANGUAGE, UNSUPPORTED_LANGUAGE_REPLY_LANG)
@@ -297,13 +353,63 @@ class ChatService:
             suspend=self._suspend_fn(conversation.id, ctx),
             conversation_id=conversation.id,
         )
-        async for event in self._drive(self._loop().run(turn), conversation.id, chunks):
-            yield event
+        loop = self._loop()
+        driven = self._drive(
+            loop.run(turn),
+            conversation.id,
+            chunks,
+            partial=lambda: loop.partial_text,
+            language=reply_language,
+            trace_id=trace_id,
+        )
+        async with closing_stream(driven) as stream:
+            async for event in stream:
+                yield event
 
     async def _resume(
         self, confirmation_id: uuid.UUID, decision: Decision, customer: CurrentCustomer
     ) -> AsyncIterator[AgentEvent]:
         trace_id = get_trace_id()
+        driving = False
+        try:
+            pending = await self._resolve(confirmation_id, decision, customer)
+            yield StartEvent(conversation_id=pending.conversation_id, trace_id=trace_id)
+            state = AgentState.from_dict(pending.agent_state)
+            language = _state_language(pending.agent_state, customer.language)
+            # Identity, session and clock come from the current request, never from the state.
+            ctx = self._tool_context(customer, trace_id, language)
+            loop = self._loop()
+            events = loop.resume(
+                state,
+                decision,
+                ctx,
+                suspend=self._suspend_fn(pending.conversation_id, ctx),
+                conversation_id=pending.conversation_id,
+            )
+            driven = self._drive(
+                events,
+                pending.conversation_id,
+                None,
+                partial=lambda: loop.partial_text,
+                is_settled=lambda: loop.resumed_call_settled,
+                language=language,
+                trace_id=trace_id,
+            )
+            driving = True  # from here `_drive` handles a cancellation
+            async with closing_stream(driven) as stream:
+                async for event in stream:
+                    yield event
+        except (asyncio.CancelledError, GeneratorExit):
+            if not driving:
+                # Cancelled between the resolution and the loop (e.g. right after `start`):
+                # the confirmation goes back to pending instead of being committed at teardown
+                # as confirmed without its tool.
+                await self._rollback_cancelled("before_resume")
+            raise
+
+    async def _resolve(
+        self, confirmation_id: uuid.UUID, decision: Decision, customer: CurrentCustomer
+    ) -> PendingConfirmation:
         try:
             pending = await self.confirmations.resolve(confirmation_id, customer.id, decision)
         except AtlasError as exc:
@@ -317,34 +423,110 @@ class ChatService:
             tool=pending.tool,
             decision=decision,
         )
-        state = AgentState.from_dict(pending.agent_state)
-        language = _state_language(pending.agent_state, customer.language)
-        # Identity, session and clock come from the current request, never from the state.
-        ctx = self._tool_context(customer, trace_id, language)
-        events = self._loop().resume(
-            state,
-            decision,
-            ctx,
-            suspend=self._suspend_fn(pending.conversation_id, ctx),
-            conversation_id=pending.conversation_id,
-        )
-        async for event in self._drive(events, pending.conversation_id, None):
-            yield event
+        return pending
 
     async def _drive(
         self,
         events: AsyncIterator[AgentEvent],
         conversation_id: uuid.UUID,
         chunks: list[RetrievedChunk] | None,
+        *,
+        partial: Callable[[], str],
+        language: Lang,
+        trace_id: str,
+        is_settled: Callable[[], bool] = lambda: True,
     ) -> AsyncIterator[AgentEvent]:
-        """Forward the loop's tool events, then store the answer and emit the final `done`."""
+        """Forward the loop's events, then store the answer and emit the final `done`.
+
+        A cancellation before the answer is committed stores `partial()` (the loop's
+        `partial_text`: the text of the model call in progress) as a `cancelled` message and
+        commits the tools that already ran (see the module docstring). While `is_settled()` is
+        False (a resume whose confirmed tool has not run yet) it rolls back instead.
+        """
+        progress = _Progress()
+        settle = self._settle(events, conversation_id, chunks, progress)
+        try:
+            async with closing_stream(settle) as settled:
+                async for event in settled:
+                    yield event
+        except (asyncio.CancelledError, GeneratorExit):
+            if progress.stored:
+                raise
+            if is_settled():
+                await self._persist_cancelled(
+                    [settle, events], conversation_id, partial(), language, trace_id
+                )
+            else:
+                await self._rollback_cancelled("before_confirmed_tool", [settle, events])
+            raise
+
+    async def _persist_cancelled(
+        self,
+        streams: list[AsyncIterator[AgentEvent]],
+        conversation_id: uuid.UUID,
+        partial: str,
+        language: Lang,
+        trace_id: str,
+    ) -> None:
+        """Store the partial answer as `cancelled` and commit what already ran (STR-07)."""
+        with anyio.CancelScope(shield=True):
+            try:
+                for stream in streams:
+                    await aclose_stream(stream)
+                message_id: int | None = None
+                if partial:
+                    message = await self.repository.append_message(
+                        conversation_id, "assistant", partial, "cancelled", language, trace_id
+                    )
+                    message_id = message.id
+                await self.session.commit()
+            except Exception as exc:
+                log_event("chat_cancel_persist_failed", exc_type=type(exc).__name__)
+                return
+        log_event(
+            "chat_stream_cancelled",
+            conversation_id=str(conversation_id),
+            message_id=message_id,
+            partial_chars=len(partial),
+        )
+
+    async def _rollback_cancelled(
+        self, stage: str, streams: list[AsyncIterator[AgentEvent]] | None = None
+    ) -> None:
+        """Undo the request's uncommitted work (the confirmation resolution) on a cancellation,
+        shielded like `_persist_cancelled`; the confirmation stays pending."""
+        with anyio.CancelScope(shield=True):
+            try:
+                for stream in streams or []:
+                    await aclose_stream(stream)
+                await self.session.rollback()
+            except Exception as exc:
+                log_event("chat_cancel_rollback_failed", exc_type=type(exc).__name__)
+                return
+        log_event("chat_stream_cancelled_unsettled", stage=stage)
+
+    async def rollback(self) -> None:
+        """Undo what the request did since its last commit (the SSE route calls it when the
+        stream fails, since the request session would otherwise commit at teardown)."""
+        await self.session.rollback()
+
+    async def _settle(
+        self,
+        events: AsyncIterator[AgentEvent],
+        conversation_id: uuid.UUID,
+        chunks: list[RetrievedChunk] | None,
+        progress: "_Progress",
+    ) -> AsyncIterator[AgentEvent]:
+        """`_drive` without the cancellation handling; records in `progress` when the answer
+        is committed."""
         final: DoneEvent | None = None
         try:
-            async for event in events:
-                if isinstance(event, DoneEvent):
-                    final = event
-                    break
-                yield event
+            async with closing_stream(events) as loop_events:
+                async for event in loop_events:
+                    if isinstance(event, DoneEvent):
+                        final = event
+                        break
+                    yield event
         except LLMError as exc:
             raise _llm_unavailable(exc) from exc
         if final is None:
@@ -361,6 +543,7 @@ class ChatService:
                 status="awaiting_confirmation",
                 confirmation=final.confirmation,
             ):
+                progress.stored = True  # `_finish` yields only after its commit
                 yield event
             return
 
@@ -373,6 +556,7 @@ class ChatService:
             chunks=chunks,
             status=status,
         ):
+            progress.stored = True  # `_finish` yields only after its commit
             yield event
 
     async def _finish(
@@ -567,6 +751,13 @@ class ChatService:
         except LLMError as exc:
             raise _llm_unavailable(exc) from exc
         return response.text
+
+
+@dataclass
+class _Progress:
+    """Whether the answer of a streamed turn is already committed."""
+
+    stored: bool = False
 
 
 def _llm_unavailable(exc: LLMError) -> AtlasError:

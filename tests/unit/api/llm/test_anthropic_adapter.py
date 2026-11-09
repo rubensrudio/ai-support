@@ -250,12 +250,6 @@ def test_missing_model_raises_missing_config_error() -> None:
         AnthropicAdapter(_settings(model=None))
 
 
-def test_stream_is_not_implemented_yet() -> None:
-    adapter = AnthropicAdapter(_settings())
-    with pytest.raises(NotImplementedError):
-        adapter.stream(_request())
-
-
 def test_sdk_client_has_no_retries_and_configured_timeout() -> None:
     adapter = AnthropicAdapter(_settings())
     assert adapter.max_retries == 0

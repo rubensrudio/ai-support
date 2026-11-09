@@ -14,7 +14,14 @@ from chat_helpers import CustomerFactory, principal_of
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.agent.events import AgentEvent, DoneEvent, ToolEndEvent, ToolStartEvent
+from api.agent.events import (
+    AgentEvent,
+    DoneEvent,
+    StartEvent,
+    TokenEvent,
+    ToolEndEvent,
+    ToolStartEvent,
+)
 from api.agent.models import PendingConfirmation
 from api.auth.models import Customer
 from api.chat.models import Message
@@ -171,6 +178,8 @@ async def test_resume_emits_tool_events_before_done(
         async for event in service.resolve_confirmation(
             waiting.confirmation.id, "confirm", principal_of(customer)
         )
+        # Phase 09: `start` and `token` events are covered by test_streaming_cancel.py.
+        if not isinstance(event, TokenEvent | StartEvent)
     ]
 
     assert [type(event) for event in events] == [ToolStartEvent, ToolEndEvent, DoneEvent]
@@ -195,6 +204,7 @@ async def test_read_only_tool_runs_without_confirmation(
         async for event in service.handle_message(
             ChatRequest(message=f"Where is my order #{order.id}?"), principal_of(customer)
         )
+        if not isinstance(event, TokenEvent | StartEvent)
     ]
 
     assert [type(event) for event in events] == [ToolStartEvent, ToolEndEvent, DoneEvent]

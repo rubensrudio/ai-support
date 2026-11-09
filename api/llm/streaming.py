@@ -5,7 +5,8 @@ does not stream (`stream()` raises `NotImplementedError`, as the subscription CL
 it falls back to `complete()` and synthesises the same event sequence from the response: one
 `text_delta` with the whole text (if any), one `tool_call` per call, `usage`, `stop`. The
 fallback only happens before the first event; a `NotImplementedError` after events were
-yielded propagates. Other errors (`LLMError`, cancellation) always propagate.
+yielded propagates. Other errors (`LLMError`, cancellation) always propagate. Closing this
+generator early also closes the provider stream.
 """
 
 from collections.abc import AsyncIterator
@@ -34,6 +35,13 @@ async def stream_or_complete(llm: LLMClient, request: LLMRequest) -> AsyncIterat
         return
     except StopAsyncIteration:
         return
-    yield first
-    async for event in source:
-        yield event
+    try:
+        yield first
+        async for event in source:
+            yield event
+    finally:
+        # Leaving `async for` does not close `source`: close it now, so an early consumer exit
+        # (disconnect, cancellation) stops the provider call instead of waiting for the GC.
+        aclose = getattr(source, "aclose", None)
+        if callable(aclose):
+            await aclose()

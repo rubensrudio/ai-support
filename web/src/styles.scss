@@ -483,6 +483,72 @@ p {
   border-bottom-left-radius: 4px;
 }
 
+.chat-message--cancelled .chat-message__content {
+  opacity: 0.7;
+  border-style: dashed;
+}
+
+.chat-message__status[data-status='cancelled'] {
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+
+.chat-message__failure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-message__error {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 0.875rem;
+}
+
+.button--small {
+  padding: 4px 10px;
+  font-size: 0.875rem;
+}
+
+.chat-sources {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.chat-sources__item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chat-sources__index {
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-sources__document {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chat-sources__section::before,
+.chat-sources__page::before {
+  content: '·';
+  margin-right: 6px;
+}
+
+.chat__typing--step {
+  color: var(--accent);
+}
+
 .chat__typing {
   display: flex;
   align-items: center;

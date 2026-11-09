@@ -25,6 +25,15 @@ class ConfirmationPrompt(_Event):
     currency: Literal["USD"] | None = None
 
 
+class StartEvent(_Event):
+    """First event of a stream (phase 09): the conversation and trace of this turn, sent before
+    any token so a client that cancels or fails before `done` still knows the conversation."""
+
+    type: Literal["start"] = "start"
+    conversation_id: UUID | None = None
+    trace_id: str
+
+
 class TokenEvent(_Event):
     type: Literal["token"] = "token"
     text: str
@@ -74,6 +83,12 @@ class ErrorEvent(_Event):
 
 
 AgentEvent = Annotated[
-    TokenEvent | ToolStartEvent | ToolEndEvent | CitationEvent | DoneEvent | ErrorEvent,
+    StartEvent
+    | TokenEvent
+    | ToolStartEvent
+    | ToolEndEvent
+    | CitationEvent
+    | DoneEvent
+    | ErrorEvent,
     Field(discriminator="type"),
 ]

@@ -7,7 +7,9 @@ retries belong to our resilience chain (DA-14). Structured output uses the SDK's
 The SDK (2.x) runs on `httpx2`, so an injected HTTP client must be an `httpx2.AsyncClient`.
 """
 
+import json
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 
 import httpx2
 from anthropic import (
@@ -22,6 +24,12 @@ from anthropic.types import (
     Message,
     MessageParam,
     OutputConfigParam,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
+    RawMessageStartEvent,
+    RawMessageStreamEvent,
     TextBlockParam,
     ToolParam,
     ToolResultBlockParam,
@@ -44,6 +52,19 @@ from api.llm.client import (
 
 PROVIDER = "anthropic"
 RECOVERABLE_STATUSES = frozenset({408, 409, 429})
+# An `error` event inside a 200 stream carries no HTTP status; map its error type to the status
+# the API uses for it, so `recoverable` follows the same rule as a failed request.
+STREAM_ERROR_STATUSES = {
+    "invalid_request_error": 400,
+    "authentication_error": 401,
+    "permission_error": 403,
+    "not_found_error": 404,
+    "request_too_large": 413,
+    "rate_limit_error": 429,
+    "api_error": 500,
+    "timeout_error": 504,
+    "overloaded_error": 529,
+}
 
 
 def is_recoverable_status(status: int) -> bool:
@@ -153,6 +174,172 @@ def _malformed_response(exc: Exception) -> LLMError:
     )
 
 
+def _stream_error_status(exc: APIStatusError) -> int:
+    """The HTTP status of a failed request, or the status matching an in-stream error event."""
+    status = exc.status_code
+    if status >= 400:
+        return status
+    body = exc.body
+    error = body.get("error") if isinstance(body, dict) else None
+    kind = error.get("type") if isinstance(error, dict) else None
+    # An unknown in-stream error is treated as a server error.
+    return STREAM_ERROR_STATUSES.get(kind, 500) if isinstance(kind, str) else 500
+
+
+def _translate_error(exc: Exception) -> LLMError:
+    """Map an SDK/transport exception to `LLMError` without its request or body (FND-90)."""
+    if isinstance(exc, APITimeoutError | httpx2.TimeoutException):
+        return LLMTimeoutError("Anthropic API call timed out")
+    if isinstance(exc, APIStatusError):
+        status = _stream_error_status(exc)
+        return LLMError(
+            f"Anthropic API returned HTTP {status}",
+            recoverable=is_recoverable_status(status),
+            status=status,
+        )
+    if isinstance(exc, APIConnectionError | httpx2.TransportError):
+        return LLMError("Anthropic API connection failed", recoverable=True)
+    if isinstance(exc, APIError | httpx2.HTTPError):
+        # Any other SDK error (e.g. response validation): name the type only.
+        return LLMError(f"Anthropic API error ({type(exc).__name__})", recoverable=False)
+    # A body that is not JSON or fails SDK validation; the exception text quotes the body.
+    return _malformed_response(exc)
+
+
+_SDK_ERRORS = (APIError, httpx2.HTTPError, ValueError)
+
+
+@dataclass(frozen=True)
+class _CallParams:
+    """The Messages API arguments shared by `complete` and `stream`."""
+
+    system: list[TextBlockParam]
+    tools: list[ToolParam]
+    messages: list[MessageParam]
+    output_config: OutputConfigParam | None
+
+    @classmethod
+    def from_request(cls, request: LLMRequest) -> "_CallParams":
+        output_config: OutputConfigParam | None = None
+        if request.response_schema is not None:
+            output_config = {"format": {"type": "json_schema", "schema": request.response_schema}}
+        return cls(
+            system=_system_blocks(request.system),
+            tools=_tool_params(request.tools),
+            messages=_messages(request.messages),
+            output_config=output_config,
+        )
+
+
+@dataclass
+class _PendingTool:
+    id: str
+    name: str
+    initial_input: dict[str, object]
+    json_chunks: list[str] = field(default_factory=list)
+
+    def to_call(self) -> ToolCall:
+        raw = "".join(self.json_chunks)
+        arguments = json.loads(raw) if raw else self.initial_input
+        return ToolCall(
+            id=self.id,
+            name=self.name,
+            arguments=dict(_require(arguments, dict, "tool_use.input")),
+        )
+
+
+@dataclass
+class _StreamState:
+    """Turns raw Messages API stream events into `LLMStreamEvent`s.
+
+    Text deltas pass through; a `tool_use` block's `input_json_delta` fragments are joined and
+    parsed when the block closes; usage (input/cache from `message_start`, cumulative output
+    from `message_delta`) and the stop reason are emitted on `message_stop`.
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    stop_reason: str | None = None
+    finished: bool = False
+    tools: dict[int, _PendingTool] = field(default_factory=dict)
+
+    def feed(self, event: RawMessageStreamEvent) -> list[LLMStreamEvent]:
+        if event.type == "message_start":
+            self._on_message_start(event)
+        elif event.type == "content_block_start":
+            self._on_block_start(event)
+        elif event.type == "content_block_delta":
+            return self._on_block_delta(event)
+        elif event.type == "content_block_stop":
+            return self._on_block_stop(event)
+        elif event.type == "message_delta":
+            self._on_message_delta(event)
+        elif event.type == "message_stop":
+            return self._on_message_stop()
+        return []
+
+    def _on_message_start(self, event: RawMessageStartEvent) -> None:
+        usage = event.message.usage
+        self.input_tokens = _require(usage.input_tokens, int, "usage.input_tokens")
+        self.output_tokens = _require(usage.output_tokens, int, "usage.output_tokens")
+        self.cache_read_tokens = _require(usage.cache_read_input_tokens or 0, int, "usage")
+        self.cache_write_tokens = _require(usage.cache_creation_input_tokens or 0, int, "usage")
+
+    def _on_block_start(self, event: RawContentBlockStartEvent) -> None:
+        block = event.content_block
+        if block.type == "tool_use":
+            self.tools[event.index] = _PendingTool(
+                id=_require(block.id, str, "tool_use.id"),
+                name=_require(block.name, str, "tool_use.name"),
+                initial_input=dict(_require(block.input or {}, dict, "tool_use.input")),
+            )
+
+    def _on_block_delta(self, event: RawContentBlockDeltaEvent) -> list[LLMStreamEvent]:
+        delta = event.delta
+        if delta.type == "text_delta":
+            text = _require(delta.text, str, "text")
+            return [LLMStreamEvent(kind="text_delta", text=text)] if text else []
+        if delta.type == "input_json_delta" and event.index in self.tools:
+            chunk = _require(delta.partial_json, str, "partial_json")
+            self.tools[event.index].json_chunks.append(chunk)
+        return []
+
+    def _on_block_stop(self, event: RawContentBlockStopEvent) -> list[LLMStreamEvent]:
+        pending = self.tools.pop(event.index, None)
+        if pending is None:
+            return []
+        return [LLMStreamEvent(kind="tool_call", tool_call=pending.to_call())]
+
+    def _on_message_delta(self, event: RawMessageDeltaEvent) -> None:
+        self.stop_reason = event.delta.stop_reason
+        totals = event.usage
+        self.output_tokens = _require(totals.output_tokens, int, "usage.output_tokens")
+        # Input/cache counts are cumulative here when present (server tools may add to them).
+        if totals.input_tokens is not None:
+            self.input_tokens = _require(totals.input_tokens, int, "usage.input_tokens")
+        if totals.cache_read_input_tokens is not None:
+            self.cache_read_tokens = _require(totals.cache_read_input_tokens, int, "usage")
+        if totals.cache_creation_input_tokens is not None:
+            self.cache_write_tokens = _require(totals.cache_creation_input_tokens, int, "usage")
+
+    def _on_message_stop(self) -> list[LLMStreamEvent]:
+        self.finished = True
+        return [
+            LLMStreamEvent(kind="usage", usage=self._usage()),
+            LLMStreamEvent(kind="stop", stop_reason=self.stop_reason),
+        ]
+
+    def _usage(self) -> Usage:
+        return Usage(
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            cache_read_tokens=self.cache_read_tokens,
+            cache_write_tokens=self.cache_write_tokens,
+        )
+
+
 class AnthropicAdapter:
     """`LLMClient` over the Anthropic Messages API."""
 
@@ -186,43 +373,20 @@ class AnthropicAdapter:
         return timeout if isinstance(timeout, float | int | None) else timeout.read
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
-        system = _system_blocks(request.system)
-        tools = _tool_params(request.tools)
-        messages = _messages(request.messages)
-        output_config: OutputConfigParam | None = None
-        if request.response_schema is not None:
-            output_config = {"format": {"type": "json_schema", "schema": request.response_schema}}
+        params = _CallParams.from_request(request)
         try:
             message = await self._client.messages.create(
                 model=self.model,
                 max_tokens=request.max_tokens,
-                messages=messages,
-                system=system if system else omit,
-                tools=tools if tools else omit,
-                output_config=output_config if output_config is not None else omit,
+                messages=params.messages,
+                system=params.system if params.system else omit,
+                tools=params.tools if params.tools else omit,
+                output_config=params.output_config if params.output_config is not None else omit,
             )
         # Errors are re-raised `from None`: the SDK exception carries the HTTP request (with the
         # API key header) and the raw body, which must never reach logs (FND-90).
-        except APITimeoutError:
-            raise LLMTimeoutError("Anthropic API call timed out") from None
-        except APIStatusError as exc:
-            status = exc.status_code
-            raise LLMError(
-                f"Anthropic API returned HTTP {status}",
-                recoverable=is_recoverable_status(status),
-                status=status,
-            ) from None
-        except APIConnectionError:
-            raise LLMError("Anthropic API connection failed", recoverable=True) from None
-        except APIError as exc:
-            # Any other SDK error (e.g. response validation): name the type only.
-            raise LLMError(
-                f"Anthropic API error ({type(exc).__name__})", recoverable=False
-            ) from None
-        except ValueError as exc:
-            # A 200 whose body is not JSON (JSONDecodeError) or fails SDK validation; the
-            # exception text quotes the body, so only its type is kept.
-            raise _malformed_response(exc) from None
+        except _SDK_ERRORS as exc:
+            raise _translate_error(exc) from None
         try:
             return _to_response(message)
         except (AttributeError, KeyError, TypeError, ValueError) as exc:
@@ -230,4 +394,38 @@ class AnthropicAdapter:
             raise _malformed_response(exc) from None
 
     def stream(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
-        raise NotImplementedError("Anthropic streaming is implemented in phase 9")
+        return self._stream(request)
+
+    async def _stream(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
+        """Stream one Messages API call (`stream=True`) as `LLMStreamEvent`s.
+
+        Failures before or after the first event raise `LLMError` (never swallowed); the
+        fallback to `complete()` lives in `api.llm.streaming`, not here. Closing the generator
+        (cancellation, client disconnect) closes the HTTP response.
+        """
+        params = _CallParams.from_request(request)
+        state = _StreamState()
+        try:
+            source = await self._client.messages.create(
+                model=self.model,
+                max_tokens=request.max_tokens,
+                messages=params.messages,
+                system=params.system if params.system else omit,
+                tools=params.tools if params.tools else omit,
+                output_config=params.output_config if params.output_config is not None else omit,
+                stream=True,
+            )
+            async with source:
+                async for raw in source:
+                    try:
+                        events = state.feed(raw)
+                    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+                        # An event of the wrong shape or tool input that is not a JSON object.
+                        raise _malformed_response(exc) from None
+                    for event in events:
+                        yield event
+        # Same as `complete`: `from None` keeps the request and body out of the traceback.
+        except _SDK_ERRORS as exc:
+            raise _translate_error(exc) from None
+        if not state.finished:
+            raise LLMError("Anthropic stream ended before message_stop", recoverable=True)

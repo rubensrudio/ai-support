@@ -1,13 +1,14 @@
 """Conversational chat service with persisted history (TASK-031, CHAT-03/04/06/10/93/95)."""
 
 import uuid
+from collections.abc import AsyncIterator
 
 import pytest
 from chat_helpers import CustomerFactory, create_customer, principal_of
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.agent.events import DoneEvent
+from api.agent.events import DoneEvent, StartEvent, TokenEvent
 from api.auth.models import Customer
 from api.chat.repository import ConversationRepository
 from api.chat.schemas import ChatRequest
@@ -15,7 +16,14 @@ from api.chat.service import ChatService
 from api.config import Settings
 from api.db.engine import get_sessionmaker
 from api.errors import AtlasError, ErrorCode
-from api.llm.client import LLMError, LLMRequest, LLMResponse, LLMTimeoutError, Usage
+from api.llm.client import (
+    LLMError,
+    LLMRequest,
+    LLMResponse,
+    LLMStreamEvent,
+    LLMTimeoutError,
+    Usage,
+)
 from api.llm.fake import FakeLLMClient
 from api.llm.tokens import count_messages
 from api.messages import MessageKey, user_message
@@ -93,6 +101,8 @@ async def test_turn_persists_user_then_assistant(
                 ChatRequest(message="When does my subscription plan renew?"),
                 principal_of(customer),
             )
+            # Phase 09: `start` and `token` events are covered by test_streaming_cancel.py.
+            if not isinstance(event, TokenEvent | StartEvent)
         ]
     finally:
         reset_trace_id(token)
@@ -239,6 +249,10 @@ class PurposeFake(FakeLLMClient):
     def __init__(self) -> None:
         super().__init__([])
         self.summaries = 0
+
+    def stream(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
+        # Phase 09: answers like a provider without streaming, so `complete` serves every call.
+        raise NotImplementedError
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         self.requests.append(request)

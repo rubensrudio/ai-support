@@ -13,16 +13,40 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import api.agent.loop as loop_module
-from api.agent.events import AgentEvent, ConfirmationPrompt, DoneEvent, ToolStartEvent
+from api.agent.events import (
+    AgentEvent,
+    ConfirmationPrompt,
+    DoneEvent,
+    TokenEvent,
+    ToolStartEvent,
+)
 from api.agent.loop import REPEATED_CALL, AgentLoop, AgentState, AgentTurn
 from api.config import Settings
-from api.llm.client import ChatMessage, LLMRequest, LLMResponse, SystemBlock, ToolCall, Usage
-from api.llm.fake import FakeLLMClient
+from api.llm.client import (
+    ChatMessage,
+    LLMRequest,
+    LLMResponse,
+    LLMStreamEvent,
+    SystemBlock,
+    ToolCall,
+    Usage,
+)
+from api.llm.fake import FakeLLMClient as ScriptedLLMClient
 from api.llm.pricing import UnknownModelPricing
 from api.messages import MessageKey, user_message
 from api.tools.registry import ToolContext, ToolDefinition, ToolErrorCode, ToolRegistry, ToolResult
 
 PRICED_MODEL = "priced-model"
+
+
+class FakeLLMClient(ScriptedLLMClient):
+    """Phase 09: these tests price each scripted response by its own `model`/`provider`. A
+    streamed call does not carry them (the loop then charges the client's identity), so this
+    fake answers like the non-streaming providers: `stream()` raises `NotImplementedError` and
+    `stream_or_complete` falls back to `complete()`, keeping the response's identity."""
+
+    def stream(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
+        raise NotImplementedError
 
 
 class OrderArgs(BaseModel):
@@ -165,7 +189,8 @@ def _turn(fx: Fixture, ctx: ToolContext | None = None) -> AgentTurn:
 
 
 async def _collect(stream: AsyncIterator[AgentEvent]) -> list[AgentEvent]:
-    return [event async for event in stream]
+    # Phase 09: `token` events are covered by test_loop_streaming.py.
+    return [event async for event in stream if not isinstance(event, TokenEvent)]
 
 
 def _done(events: list[AgentEvent]) -> DoneEvent:
