@@ -13,7 +13,9 @@ from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AppEnv = Literal["local", "ci", "demo", "test"]
-LLMProvider = Literal["anthropic", "fake"]
+LLMProvider = Literal["anthropic", "fake", "claude_cli", "codex_cli"]
+SUBSCRIPTION_PROVIDERS: frozenset[str] = frozenset({"claude_cli", "codex_cli"})
+"""Providers that run through a logged-in CLI subscription (LAC-43): no API key, cost unknown."""
 HistoryMode = Literal["full", "summarized"]
 RetrievalMode = Literal["none", "fulltext", "vector_bruteforce", "vector_hnsw", "hybrid"]
 TriageMode = Literal["prompt_only", "schema"]
@@ -77,6 +79,13 @@ class Settings(BaseSettings):
     )
     pricing_file: str = Field(
         default="config/pricing.json", validation_alias=_env("ATLAS_PRICING_FILE")
+    )
+
+    # Subscription CLI providers (LAC-43): local manual testing only, never CI or public demo
+    claude_cli_path: str = Field(default="claude", validation_alias=_env("ATLAS_CLAUDE_CLI_PATH"))
+    codex_cli_path: str = Field(default="codex", validation_alias=_env("ATLAS_CODEX_CLI_PATH"))
+    cli_timeout_seconds: float = Field(
+        default=120.0, gt=0, validation_alias=_env("ATLAS_CLI_TIMEOUT_SECONDS")
     )
 
     # Resilience (phase 12)
@@ -188,7 +197,11 @@ class Settings(BaseSettings):
     qa_password: SecretStr | None = Field(default=None, validation_alias=_env("ATLAS_QA_PASSWORD"))
 
     def require_llm_keys(self) -> None:
-        """Fail fast when the configured LLM provider lacks its key or model."""
+        """Fail fast when the configured LLM provider lacks its key or model.
+
+        `fake` and the subscription CLI providers (`claude_cli`, `codex_cli`) need no key; the
+        CLI providers use `primary_model` only when it is set (the CLI default otherwise).
+        """
         if self.llm_provider == "anthropic":
             if self.anthropic_api_key is None or not self.anthropic_api_key.get_secret_value():
                 raise MissingConfigError("ANTHROPIC_API_KEY")

@@ -284,6 +284,13 @@ Etapa: gate de clarificação do `/generate-plan` (após spec-writer, 1ª passad
 - **Escolha**: A
 - **Observações do humano**: —
 
+### LAC-43 — LLM via assinatura logada (Claude Code e Codex CLI)
+- **Data**: 2026-11-09 (etapa: orchestrate, fase 01)
+- **Opções apresentadas**: A) adapters `claude_cli` e `codex_cli` atrás do `LLMClient`, só para teste manual local (fake no CI, API key nas demos medidas) B) só API key
+- **Recomendação do orquestrador**: A
+- **Escolha**: A
+- **Observações do humano**: aprovado. Limites aceitos: custo real desconhecido (`cost_usd=None`, `pricing_error="subscription"`), sem controle de prompt cache, tool calling não suportado nesta fase, latência maior, uso pessoal local (não na demo pública).
+
 ## Premissas assumidas (lacunas não bloqueantes)
 
 ### LAC-18 — Bônus da fase 5 no escopo?
