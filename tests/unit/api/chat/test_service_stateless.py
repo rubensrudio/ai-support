@@ -193,7 +193,11 @@ async def test_collect_folds_citation_events_into_citations() -> None:
 
 
 @pytest.mark.usefixtures("fake_provider_env")
-def test_get_chat_service_builds_a_retriever_from_the_settings() -> None:
+def test_get_chat_service_builds_a_retriever_from_the_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ATLAS_RETRIEVAL_MODE", "fulltext")
+    get_settings.cache_clear()
     service = get_chat_service(AsyncSession())
 
     assert isinstance(service.retriever, Retriever)

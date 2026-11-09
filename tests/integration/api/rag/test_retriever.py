@@ -34,10 +34,7 @@ async def factory(migrated_database: str) -> AsyncIterator[async_sessionmaker[As
 
 @pytest.fixture
 def isolated_registry(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(retriever_module, "_SEARCHERS", dict(retriever_module._SEARCHERS))
-    monkeypatch.setattr(
-        retriever_module, "_VECTOR_SEARCHERS", dict(retriever_module._VECTOR_SEARCHERS)
-    )
+    monkeypatch.setattr(retriever_module, "_REGISTRY", dict(retriever_module._REGISTRY))
 
 
 async def _seed(
@@ -159,7 +156,7 @@ async def test_documents_not_indexed_are_not_retrieved(
 
 
 @pytest.mark.parametrize("mode", ["vector_bruteforce", "vector_hnsw", "hybrid"])
-async def test_mode_without_searcher_is_unavailable(
+async def test_vector_mode_without_embedder_is_unavailable(
     factory: async_sessionmaker[AsyncSession], mode: RetrievalMode
 ) -> None:
     retriever = Retriever(factory, None, _settings(mode=mode))

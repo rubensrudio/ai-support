@@ -4,7 +4,9 @@ Modes come from `api.config.RetrievalMode` (`none`, `fulltext`, `vector_brutefor
 `vector_hnsw`, `hybrid`). Text searchers (`register_mode`) receive the question; vector
 searchers (`register_vector_mode`, CT-35) receive the question embedding, computed here with the
 retriever's `embedder` (one `embed([query])` call per retrieval). Phase 03 registers `fulltext`,
-phase 04 `vector_bruteforce`. A vector mode without an embedder, an `EmbeddingError` and any
+phase 04 `vector_bruteforce`, phase 05 `vector_hnsw` and `hybrid` (`register_hybrid_mode`:
+the searcher receives both the question and its embedding; full-text + HNSW fused with RRF,
+CT-36). A vector or hybrid mode without an embedder, an `EmbeddingError` and any
 search failure all become `RetrievalUnavailable` (RAG-94); an empty index yields `[]` (RAG-90).
 """
 
@@ -20,8 +22,10 @@ from api.messages import Lang
 from api.observability.logging import log_event
 from api.rag.embeddings import EmbeddingClient
 from api.rag.fulltext import ScoredChunk, search_fulltext
+from api.rag.hybrid import search_hybrid
 from api.rag.models import Chunk, Document
 from api.rag.vector_bruteforce import search_bruteforce
+from api.rag.vector_hnsw import search_hnsw
 
 
 @dataclass(frozen=True)
@@ -42,35 +46,74 @@ class RetrievalUnavailable(RuntimeError):
 
 Searcher = Callable[[AsyncSession, str, Lang, int], Awaitable[list[ScoredChunk]]]
 VectorSearcher = Callable[[AsyncSession, list[float], Lang, int], Awaitable[list[ScoredChunk]]]
+HybridSearcher = Callable[[AsyncSession, str, list[float], Lang, int], Awaitable[list[ScoredChunk]]]
+# Internal shape of every registered mode: (session, query, query_vector or None, language, k).
+_Search = Callable[[AsyncSession, str, list[float] | None, Lang, int], Awaitable[list[ScoredChunk]]]
 
-# `none` never reaches the registries: it returns `[]` without opening a session.
-_SEARCHERS: dict[RetrievalMode, Searcher] = {}
-_VECTOR_SEARCHERS: dict[RetrievalMode, VectorSearcher] = {}
+
+@dataclass(frozen=True)
+class _Registration:
+    needs_vector: bool
+    search: _Search
+
+
+# `none` never reaches the registry: it returns `[]` without opening a session.
+_REGISTRY: dict[RetrievalMode, _Registration] = {}
+
+
+def _register(mode: RetrievalMode, registration: _Registration) -> None:
+    if mode == "none":
+        raise ValueError("Mode 'none' does not take a searcher")
+    _REGISTRY[mode] = registration
 
 
 def register_mode(mode: RetrievalMode, searcher: Searcher) -> None:
-    """Register (or replace) the text searcher used for `mode`."""
-    if mode == "none":
-        raise ValueError("Mode 'none' does not take a searcher")
-    _VECTOR_SEARCHERS.pop(mode, None)
-    _SEARCHERS[mode] = searcher
+    """Register (or replace) the text searcher used for `mode`; it receives the question."""
+
+    async def search(
+        session: AsyncSession, query: str, _: list[float] | None, language: Lang, k: int
+    ) -> list[ScoredChunk]:
+        return await searcher(session, query, language, k)
+
+    _register(mode, _Registration(needs_vector=False, search=search))
 
 
 def register_vector_mode(mode: RetrievalMode, searcher: VectorSearcher) -> None:
     """Register (or replace) the vector searcher used for `mode` (CT-35)."""
-    if mode == "none":
-        raise ValueError("Mode 'none' does not take a searcher")
-    _SEARCHERS.pop(mode, None)
-    _VECTOR_SEARCHERS[mode] = searcher
+
+    async def search(
+        session: AsyncSession, _: str, vector: list[float] | None, language: Lang, k: int
+    ) -> list[ScoredChunk]:
+        if vector is None:  # pragma: no cover - the retriever always embeds for these modes
+            raise RetrievalUnavailable("Vector search needs a query embedding")
+        return await searcher(session, vector, language, k)
+
+    _register(mode, _Registration(needs_vector=True, search=search))
+
+
+def register_hybrid_mode(mode: RetrievalMode, searcher: HybridSearcher) -> None:
+    """Register (or replace) a searcher that takes both the question and its embedding (CT-36)."""
+
+    async def search(
+        session: AsyncSession, query: str, vector: list[float] | None, language: Lang, k: int
+    ) -> list[ScoredChunk]:
+        if vector is None:  # pragma: no cover - the retriever always embeds for these modes
+            raise RetrievalUnavailable("Hybrid search needs a query embedding")
+        return await searcher(session, query, vector, language, k)
+
+    _register(mode, _Registration(needs_vector=True, search=search))
 
 
 def is_vector_mode(mode: RetrievalMode) -> bool:
     """True when `mode` needs a query embedding (an embedder must be configured)."""
-    return mode in _VECTOR_SEARCHERS
+    registration = _REGISTRY.get(mode)
+    return registration is not None and registration.needs_vector
 
 
 register_mode("fulltext", search_fulltext)
 register_vector_mode("vector_bruteforce", search_bruteforce)
+register_vector_mode("vector_hnsw", search_hnsw)
+register_hybrid_mode("hybrid", search_hybrid)
 
 
 class Retriever:
@@ -96,20 +139,15 @@ class Retriever:
         limit = self.settings.retrieval_top_k if k is None else k
         if mode == "none" or limit <= 0:
             return []
-        searcher = _SEARCHERS.get(mode)
-        vector_searcher = _VECTOR_SEARCHERS.get(mode)
-        if searcher is None and (vector_searcher is None or self.embedder is None):
+        registration = _REGISTRY.get(mode)
+        if registration is None or (registration.needs_vector and self.embedder is None):
             raise RetrievalUnavailable(f"Retrieval mode '{mode}' is not available")
         try:
-            if searcher is None and vector_searcher is not None and self.embedder is not None:
+            query_vector: list[float] | None = None
+            if registration.needs_vector and self.embedder is not None:
                 [query_vector] = await self.embedder.embed([query])
-                async with self.session_factory() as session:
-                    scored = await vector_searcher(session, query_vector, language, limit)
-                    return await _hydrate(session, scored)
-            if searcher is None:  # pragma: no cover - excluded by the check above
-                raise RetrievalUnavailable(f"Retrieval mode '{mode}' is not available")
             async with self.session_factory() as session:
-                scored = await searcher(session, query, language, limit)
+                scored = await registration.search(session, query, query_vector, language, limit)
                 return await _hydrate(session, scored)
         except Exception as exc:
             # The message stays generic: driver errors may carry SQL text and parameters.
