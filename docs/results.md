@@ -6,7 +6,7 @@ real provider to fill it.
 
 | Phase | Metric | Before | After | Notes |
 |---|---|---|---|---|
-| 01 |  |  |  |  |
+| 01 | Name recalled on a 2nd independent call | en: no, pt: no | Fixed in phase 02 (conversation history): rerun demo_01 on tag phase-02 | provider=real; calls without conversation_id |
 | 02 |  |  |  |  |
 | 03 |  |  |  |  |
 | 04 |  |  |  |  |

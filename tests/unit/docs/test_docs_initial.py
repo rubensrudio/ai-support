@@ -60,7 +60,7 @@ def test_readme_lists_the_dev_gates() -> None:
         assert command in readme, command
 
 
-def test_results_log_has_one_empty_row_per_phase() -> None:
+def test_results_log_has_one_row_per_phase() -> None:
     lines = _read("docs/results.md").splitlines()
 
     assert "| Phase | Metric | Before | After | Notes |" in lines
@@ -69,7 +69,8 @@ def test_results_log_has_one_empty_row_per_phase() -> None:
     for row in rows:
         cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
         assert len(cells) == 5
-        assert cells[1:] == ["", "", "", ""]
+        # A row is either empty (phase not measured yet) or filled by its demo with a metric.
+        assert cells[1:] == ["", "", "", ""] or cells[1] != ""
 
 
 def test_adr_template_has_the_required_sections() -> None:
