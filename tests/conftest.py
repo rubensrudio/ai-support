@@ -36,6 +36,11 @@ HERMETIC_ENV = {
     "LANGFUSE_HOST": "",
     "LANGFUSE_PUBLIC_KEY": "",
     "LANGFUSE_SECRET_KEY": "",
+    # The cost ledger writes to the database: off unless a test turns it on (TASK-142).
+    "ATLAS_LLM_LEDGER_ENABLED": "false",
+    # Existing suites send more than the demo's 20 messages per hour per persona; the limit tests
+    # set their own values (TASK-144, TASK-145).
+    "ATLAS_RATE_LIMIT_PER_HOUR": "1000000",
 }
 
 

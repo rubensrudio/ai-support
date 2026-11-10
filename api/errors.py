@@ -1,11 +1,15 @@
 """Error catalog and the standard error envelope (CT-3, plan 8.3, CHAT-92).
 
 Every error response has the body `{"error": {"code", "message", "trace_id"}}`, where
-`trace_id` is the one returned in `X-Trace-Id`. No stack trace and no exception text ever
-reach the body: an unhandled exception becomes `INTERNAL_ERROR` and only its type is logged.
+`trace_id` is the one returned in `X-Trace-Id`. An `AtlasError` whose params carry `retry_at`
+(429 `RATE_LIMITED` / `DAILY_CAP_REACHED`, plan 8.1) adds it to the envelope as an ISO-8601
+string, and its `lang` picks the message language (default `en`). No stack trace and no
+exception text ever reach the body: an unhandled exception becomes `INTERNAL_ERROR` and only
+its type is logged.
 """
 
 from collections.abc import Mapping
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
@@ -78,12 +82,17 @@ class AtlasError(Exception):
     """Typed error returned to the client with the standard envelope."""
 
     def __init__(
-        self, code: ErrorCode, http_status: int, params: dict[str, object] | None = None
+        self,
+        code: ErrorCode,
+        http_status: int,
+        params: dict[str, object] | None = None,
+        lang: Lang | None = None,
     ) -> None:
         super().__init__(code.value)
         self.code = code
         self.http_status = http_status
         self.params: dict[str, object] = dict(params or {})
+        self.lang: Lang = lang or DEFAULT_LANG
 
 
 def error_message(code: ErrorCode, lang: Lang = DEFAULT_LANG, **params: object) -> str:
@@ -100,19 +109,32 @@ def error_body(code: ErrorCode, message: str) -> dict[str, dict[str, str]]:
     return {"error": {"code": code.value, "message": message, "trace_id": get_trace_id()}}
 
 
+RETRY_AT_FIELD = "retry_at"
+
+
 def error_response(
     code: ErrorCode,
     http_status: int,
     params: dict[str, object] | None = None,
     headers: Mapping[str, str] | None = None,
+    lang: Lang = DEFAULT_LANG,
 ) -> JSONResponse:
-    message = error_message(code, DEFAULT_LANG, **(params or {}))
-    return JSONResponse(error_body(code, message), status_code=http_status, headers=headers)
+    message_params = dict(params or {})
+    retry_at = message_params.get(RETRY_AT_FIELD)
+    if isinstance(retry_at, datetime):
+        # The message shows the time of day; the envelope carries the full instant.
+        message_params[RETRY_AT_FIELD] = retry_at.strftime("%H:%M UTC")
+    message = error_message(code, lang, **message_params)
+    body = error_body(code, message)
+    if retry_at is not None:
+        value = retry_at.isoformat() if isinstance(retry_at, datetime) else str(retry_at)
+        body["error"][RETRY_AT_FIELD] = value
+    return JSONResponse(body, status_code=http_status, headers=headers)
 
 
 async def _atlas_error_handler(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, AtlasError)  # noqa: S101 - registered only for AtlasError
-    return error_response(exc.code, exc.http_status, exc.params)
+    return error_response(exc.code, exc.http_status, exc.params, lang=exc.lang)
 
 
 async def _validation_error_handler(request: Request, exc: Exception) -> JSONResponse:

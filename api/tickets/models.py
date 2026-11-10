@@ -17,8 +17,10 @@ class Ticket(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    # Nullable with ON DELETE SET NULL (migration 0011): the daily demo restore deletes the
+    # personas' conversations but keeps their tickets until the 7-day purge (DEMO-12).
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
     )
     customer_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("customers.id", ondelete="CASCADE"), nullable=False

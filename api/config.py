@@ -9,7 +9,7 @@ from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AliasChoices, Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AppEnv = Literal["local", "ci", "demo", "test"]
@@ -183,6 +183,11 @@ class Settings(BaseSettings):
     maintenance_interval_seconds: int = Field(
         default=300, gt=0, validation_alias=_env("ATLAS_MAINTENANCE_INTERVAL_SECONDS")
     )
+    # Every LLM call writes its estimated cost to `llm_calls` (DEMO-03). The test suite turns it
+    # off so unit tests never write to the developer's database; tests that need it turn it on.
+    llm_ledger_enabled: bool = Field(
+        default=True, validation_alias=_env("ATLAS_LLM_LEDGER_ENABLED")
+    )
 
     # Observability
     langfuse_host: str | None = Field(default=None, validation_alias=_env("LANGFUSE_HOST"))
@@ -196,6 +201,16 @@ class Settings(BaseSettings):
     # Screen QA credentials (names only; values are a persona and its password)
     qa_username: str | None = Field(default=None, validation_alias=_env("ATLAS_QA_USERNAME"))
     qa_password: SecretStr | None = Field(default=None, validation_alias=_env("ATLAS_QA_PASSWORD"))
+
+    @field_validator("database_url")
+    @classmethod
+    def _psycopg_driver(cls, value: str) -> str:
+        """Managed Postgres (Render) hands out `postgres://` / `postgresql://` URLs; the app
+        always talks through the async psycopg driver (DA-27)."""
+        for prefix in ("postgres://", "postgresql://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix) :]
+        return value
 
     def require_llm_keys(self) -> None:
         """Fail fast when the configured LLM provider lacks its key or model.

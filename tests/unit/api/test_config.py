@@ -85,3 +85,23 @@ def test_secrets_are_hidden_from_repr_and_str(monkeypatch: pytest.MonkeyPatch) -
 
 def test_get_settings_is_cached() -> None:
     assert get_settings() is get_settings()
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("postgres://u:p@db:5432/atlas", "postgresql+psycopg://u:p@db:5432/atlas"),
+        ("postgresql://u:p@db:5432/atlas", "postgresql+psycopg://u:p@db:5432/atlas"),
+        ("postgresql+psycopg://u:p@db:5432/atlas", "postgresql+psycopg://u:p@db:5432/atlas"),
+    ],
+)
+def test_managed_postgres_url_uses_the_psycopg_driver(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: str
+) -> None:
+    monkeypatch.setenv("ATLAS_DATABASE_URL", raw)
+    assert Settings().database_url == expected
+
+
+def test_llm_ledger_is_on_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ATLAS_LLM_LEDGER_ENABLED", raising=False)
+    assert _settings().llm_ledger_enabled is True
