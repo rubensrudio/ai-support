@@ -214,6 +214,10 @@ def _order_ids(text: str) -> list[int]:
     return ids
 
 
+# Fail closed: every promised tool is checked unless it is known to be read-only.
+READ_ONLY_TOOLS = frozenset({"list_orders", "get_order", "get_subscription", "check_refund_policy"})
+
+
 def _promise_is_backed(tool: str, order_id: int | None, ctx: OutputContext) -> bool:
     """One claimed action is backed by a successful call of its tool in this request, or by the
     real state of the customer's orders (a report, not a promise):
@@ -222,8 +226,13 @@ def _promise_is_backed(tool: str, order_id: int | None, ctx: OutputContext) -> b
       `issue_refund` -> refunded);
     - with no order cited, only the tool itself backs it: a read tool plus one order in that
       state is not enough ("I've cancelled your order." is the core GRD-08 case);
-    - `cancel_subscription` has no tool and is never backed.
+    - `cancel_subscription` has no tool and is never backed;
+    - read-only tools (`list_orders`, `get_order`, `get_subscription`, `check_refund_policy`)
+      are not actions (GRD-08 is about side effects) and are never audited, so a claim such as
+      "I checked your orders" is always allowed.
     """
+    if tool in READ_ONLY_TOOLS:
+        return True
     if tool == CANCEL_SUBSCRIPTION:
         return False
     if tool in ctx.successful_tools:

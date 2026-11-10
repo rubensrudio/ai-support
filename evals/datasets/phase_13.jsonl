@@ -1,0 +1,4 @@
+{"id": "phase13-tone-en-001", "phase": 13, "category": "tone", "language": "en", "input": {"message": "Your app charged me twice this month. Fix it. Now.", "persona": "alex"}, "expected": {"tone": "polite"}, "grader": "tone"}
+{"id": "phase13-tone-en-002", "phase": 13, "category": "tone", "language": "en", "input": {"message": "Sorry, I'm not good with apps. Where do I see when my next box will arrive?", "persona": "alex"}, "expected": {"tone": "polite"}, "grader": "tone"}
+{"id": "phase13-tone-pt-001", "phase": 13, "category": "tone", "language": "pt", "input": {"message": "Vocês cobraram duas vezes este mês. Quero isso resolvido agora.", "persona": "bia"}, "expected": {"tone": "polite"}, "grader": "tone"}
+{"id": "phase13-tone-pt-002", "phase": 13, "category": "tone", "language": "pt", "input": {"message": "Desculpa, não sou boa com aplicativos. Onde eu vejo quando a próxima caixa vai chegar?", "persona": "bia"}, "expected": {"tone": "polite"}, "grader": "tone"}

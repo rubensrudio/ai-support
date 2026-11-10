@@ -491,3 +491,28 @@ async def test_unnumbered_promise_of_a_tool_without_state_still_needs_the_tool()
     )
 
     assert verdict == OutputVerdict(action="block", reason=UNFULFILLED_PROMISE)
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Verifiquei seus pedidos recentes.",
+        "I checked your recent orders.",
+        "Consultei o seu pedido #1001.",
+        "I looked up your subscription.",
+    ],
+)
+async def test_read_only_tool_claims_are_never_unfulfilled_promises(sentence: str) -> None:
+    guard = OutputGuard(FakeLLMClient([]), Settings(_env_file=None))  # type: ignore[call-arg]
+    ctx = OutputContext(
+        customer_id=uuid.uuid4(),
+        own_order_ids={1001},
+        own_email="bia@example.test",
+        successful_tools=set(),
+        question="Meus pedidos",
+        language="pt",
+    )
+
+    verdict = await guard.check_sentence(sentence, ctx)
+
+    assert verdict.action == "allow"

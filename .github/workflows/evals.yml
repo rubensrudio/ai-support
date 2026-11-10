@@ -1,0 +1,210 @@
+# Full evals with the merge gate (EVAL-03, EVAL-04, EVAL-05, EVAL-07, EVAL-90..92, TASK-129).
+#
+# - pull_request touching prompts/** or api/**: runs the evals on the `auto` target (json_valid
+#   cases go to triage, the rest to chat) with the real provider in a single report,
+#   compares the report with the `eval-report` artifact of the last successful push run on the
+#   default branch, comments the markdown report on the PR and fails with the gate exit code
+#   (0 pass or baseline created, 1 regression, 2 execution error).
+# - push to the default branch (`develop`, the repo's HEAD branch): runs the same evals and
+#   uploads the report as the `eval-report` artifact, which becomes the next baseline. Every
+#   push runs (no path filter) so dataset changes refresh the baseline too.
+# - without the ANTHROPIC_API_KEY secret (forks, unconfigured repos) the job passes, marked
+#   `skipped: no ANTHROPIC_API_KEY`, and says so on the PR without blocking.
+# The merge block needs the Operator to mark this job as a required check (plan section 16).
+# The smoke evals stay on the echo target in ci.yml.
+name: Evals
+
+on:
+  pull_request:
+    paths:
+      - "prompts/**"
+      - "api/**"
+  push:
+    branches:
+      - develop
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    name: Evals (gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: atlas
+          POSTGRES_PASSWORD: atlas
+          POSTGRES_DB: atlas
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U atlas -d atlas"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ATLAS_APP_ENV: ci
+      ATLAS_DATABASE_URL: postgresql+psycopg://atlas:atlas@localhost:5432/atlas
+      ATLAS_LLM_PROVIDER: anthropic
+      # ANTHROPIC_API_KEY is passed only to the steps that need it: the key check and the eval
+      # run (chat, triage and judge). Migrations, ingestion and the gate never call the LLM.
+      # Retrieval runs on full-text only, so the corpus is ingested without embeddings and no
+      # embedding key is needed; the fake embedder guards any code path that still builds one.
+      ATLAS_EMBEDDING_PROVIDER: fake
+      ATLAS_RETRIEVAL_MODE: fulltext
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Check eval secrets
+        id: key
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ATLAS_PRIMARY_MODEL_VALUE: >-
+            ${{ vars.ATLAS_PRIMARY_MODEL || secrets.ATLAS_PRIMARY_MODEL }}
+          ATLAS_SECONDARY_MODEL_VALUE: >-
+            ${{ vars.ATLAS_SECONDARY_MODEL || secrets.ATLAS_SECONDARY_MODEL }}
+          ATLAS_GUARDRAIL_MODEL_VALUE: >-
+            ${{ vars.ATLAS_GUARDRAIL_MODEL || secrets.ATLAS_GUARDRAIL_MODEL }}
+          ATLAS_JUDGE_MODEL_VALUE: ${{ vars.ATLAS_JUDGE_MODEL || secrets.ATLAS_JUDGE_MODEL }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          # Export only the models that are set: an empty string is not the same as unset.
+          for name in ATLAS_PRIMARY_MODEL ATLAS_SECONDARY_MODEL ATLAS_GUARDRAIL_MODEL \
+            ATLAS_JUDGE_MODEL; do
+            source_var="${name}_VALUE"
+            value="${!source_var}"
+            if [ -n "$value" ]; then
+              echo "${name}=${value}" >> "$GITHUB_ENV"
+            fi
+          done
+
+      - name: Report skipped evals
+        if: steps.key.outputs.available != 'true'
+        run: |
+          echo "::notice::Evals skipped: no ANTHROPIC_API_KEY secret"
+          echo "Evals skipped: no ANTHROPIC_API_KEY secret." >> "$GITHUB_STEP_SUMMARY"
+          echo "skipped: no ANTHROPIC_API_KEY"
+
+      - name: Comment skipped evals on the PR
+        if: >-
+          github.event_name == 'pull_request' && steps.key.outputs.available != 'true'
+        run: |
+          body="**Atlas evals** skipped: no ANTHROPIC_API_KEY secret. The merge gate did not run."
+          gh pr comment "$PR_NUMBER" --edit-last --body "$body" \
+            || gh pr comment "$PR_NUMBER" --body "$body" \
+            || echo "::warning::could not comment on the PR (read-only token?)"
+
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.available == 'true'
+
+      - uses: astral-sh/setup-uv@v6
+        if: steps.key.outputs.available == 'true'
+        with:
+          version: "0.12.15"
+          enable-cache: true
+
+      - name: Install dependencies
+        if: steps.key.outputs.available == 'true'
+        run: uv sync --frozen
+
+      - name: Migrate database
+        if: steps.key.outputs.available == 'true'
+        run: uv run alembic upgrade head
+
+      - name: Ingest corpus
+        if: steps.key.outputs.available == 'true'
+        run: uv run python -m ingest run --skip-embeddings --report reports/ingest-report.json
+
+      - name: Download baseline report
+        if: >-
+          github.event_name == 'pull_request' && steps.key.outputs.available == 'true'
+        run: |
+          mkdir -p reports/base
+          run_ids=$(gh run list --workflow evals.yml --branch develop --event push \
+            --status success --limit 10 --json databaseId --jq '.[].databaseId')
+          # A successful run may have skipped (no key) and carry no artifact: try the next one.
+          for run_id in $run_ids; do
+            if gh run download "$run_id" -n eval-report -D reports/base; then
+              echo "baseline: eval-report from run $run_id"
+              break
+            fi
+          done
+          if [ ! -f reports/base/eval-report.json ]; then
+            echo "::notice::no baseline on develop; this run becomes the baseline (EVAL-92)"
+          fi
+
+      # The single quotes keep the glob for evals/dataset.py; `[!s]*` leaves out smoke.jsonl,
+      # which runs on the echo target in ci.yml. One report feeds the gate.
+      - name: Run evals
+        if: steps.key.outputs.available == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: >-
+          uv run python -m evals run
+          --dataset 'evals/datasets/[!s]*.jsonl'
+          --target auto
+          --out reports/eval-report.json
+
+      - name: Eval gate
+        if: "!cancelled() && steps.key.outputs.available == 'true'"
+        run: >-
+          uv run python -m evals gate
+          --current reports/eval-report.json
+          --base reports/base/eval-report.json
+          --markdown reports/eval-report.md
+
+      - name: Write job summary
+        if: always() && steps.key.outputs.available == 'true'
+        run: |
+          if [ -f reports/eval-report.md ]; then
+            cat reports/eval-report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Comment eval report on the PR
+        if: >-
+          always() && github.event_name == 'pull_request'
+          && steps.key.outputs.available == 'true'
+        run: |
+          if [ ! -f reports/eval-report.md ]; then
+            echo "::warning::no eval report to comment"
+            exit 0
+          fi
+          gh pr comment "$PR_NUMBER" --edit-last --body-file reports/eval-report.md \
+            || gh pr comment "$PR_NUMBER" --body-file reports/eval-report.md \
+            || echo "::warning::could not comment on the PR (read-only token?)"
+
+      - name: Upload baseline report
+        if: github.event_name == 'push' && steps.key.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: |
+            reports/eval-report.json
+            reports/eval-report.md
+          retention-days: 90
+
+      - name: Upload PR report
+        if: >-
+          always() && github.event_name == 'pull_request'
+          && steps.key.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-pr
+          path: |
+            reports/eval-report.json
+            reports/eval-report.md
+          if-no-files-found: ignore
