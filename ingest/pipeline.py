@@ -4,7 +4,16 @@ Reads `corpus/manifest.yaml` and processes every `(doc_key, language)` in a tran
 own, so one bad file never stops the others (RAG-91). Re-ingestion is idempotent (RAG-92): a
 document whose `content_hash` did not change keeps its chunks; a changed one has its chunks
 deleted and inserted again. Each chunk stores its language and `ts_config = TS_CONFIGS[lang]`
-(DA-13). The injection scan (`quarantined`) arrives in phase 10.
+(DA-13).
+
+Injection scan (phase 10, GRD-03, GRD-91): with `ATLAS_INGEST_INJECTION_SCAN` (default true, or
+`scan_injection` of `ingest_corpus`), the full parsed text of each document is checked with
+`find_injection` before anything is embedded or indexed. A match stores the document
+`quarantined` with `error='injection: <pattern names>'`, deletes any chunk it had (from a
+previous run too), never calls the embedder and counts it in `totals.quarantined`. A quarantined
+document is never "unchanged" (only `indexed` ones are), so every run scans it again: while it
+matches it stays quarantined; once it no longer matches (or the scan is off) it is indexed.
+There is no release flow: fixing the source file is the way out of quarantine.
 
 Embeddings (phase 04, RAG-07, RAG-93): with an `embedder` and without `skip_embeddings`, the
 vectors of a document are computed before its write, in one batched `embed` call per document,
@@ -46,6 +55,8 @@ import yaml
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from api.config import get_settings
+from api.guardrails.patterns import find_injection
 from api.observability.logging import log_event
 from api.rag.embeddings import EmbeddingClient, EmbeddingError
 from api.rag.models import DOC_FORMATS, DOC_TYPES, TS_CONFIGS, Chunk, Document
@@ -56,6 +67,7 @@ from ingest.report import DocumentReport, IngestReport
 MANIFEST_NAME = "manifest.yaml"
 DEFAULT_LANGUAGES = ("en", "pt")
 REMOVED_FROM_MANIFEST = "removed from manifest"
+INJECTION_ERROR_PREFIX = "injection: "
 # Alternative PDF layouts accepted after the default `pdf/<lang>/<doc_key>.pdf`.
 _PDF_LAYOUTS = ("pdf/{lang}/{key}.pdf", "pdf/{key}.{lang}.pdf", "pdf/{key}-{lang}.pdf")
 
@@ -190,16 +202,21 @@ async def ingest_corpus(
     skip_embeddings: bool = False,
     embedder: EmbeddingClient | None = None,
     reembed: bool = False,
+    scan_injection: bool | None = None,
 ) -> IngestReport:
     """Ingest every manifest entry × language, embedding the chunks unless told not to.
 
     `reembed` recomputes the embedding of every chunk and needs an `embedder`; it cannot be
     combined with `skip_embeddings`. It raises `ReembedAborted` at the first embedder failure.
+    `scan_injection` quarantines the documents whose text matches an injection pattern; `None`
+    follows `settings.ingest_injection_scan` (`ATLAS_INGEST_INJECTION_SCAN`).
     """
     if reembed and (skip_embeddings or embedder is None):
         raise ValueError("reembed needs an embedder and cannot be combined with skip_embeddings")
     if skip_embeddings:
         embedder = None
+    if scan_injection is None:
+        scan_injection = get_settings().ingest_injection_scan
     report = IngestReport()
     entries = load_manifest(corpus_dir)
     for entry in entries:
@@ -208,7 +225,14 @@ async def ingest_corpus(
             report.documents.append(
                 _logged(
                     await _ingest_one(
-                        session_factory, corpus_dir, entry, language, path, embedder, reembed
+                        session_factory,
+                        corpus_dir,
+                        entry,
+                        language,
+                        path,
+                        embedder,
+                        reembed,
+                        scan_injection=scan_injection,
                     )
                 )
             )
@@ -273,6 +297,8 @@ async def _ingest_one(
     path: Path,
     embedder: EmbeddingClient | None,
     reembed: bool = False,
+    *,
+    scan_injection: bool = True,
 ) -> DocumentReport:
     def result(status: str, chunks: int = 0, error: str | None = None) -> DocumentReport:
         return DocumentReport(
@@ -298,11 +324,26 @@ async def _ingest_one(
     content_hash = hashlib.sha256(data).hexdigest()
 
     try:
-        chunks = chunk_sections(parse_document(path, entry.format).sections)
+        sections = parse_document(path, entry.format).sections
     except UnreadableDocument as error:
         return await _record_failure(
             session_factory, entry, language, stored_path, content_hash, str(error)
         )
+
+    if scan_injection:  # GRD-03: before any embedding or indexing
+        patterns = find_injection("\n\n".join(section.text for section in sections))
+        if patterns:
+            message = INJECTION_ERROR_PREFIX + ", ".join(patterns)
+            return await _record_failure(
+                session_factory,
+                entry,
+                language,
+                stored_path,
+                content_hash,
+                message,
+                status="quarantined",
+            )
+    chunks = chunk_sections(sections)
 
     embeddings: _Embeddings | None = None
     if embedder is not None:
@@ -484,14 +525,20 @@ async def _record_failure(
     stored_path: str,
     content_hash: str,
     message: str,
+    *,
+    status: str = "failed",
 ) -> DocumentReport:
-    """Mark the document failed and drop its old chunks, so stale text is never retrieved."""
+    """Mark the document failed (or quarantined) and drop its old chunks.
+
+    Stale text is never retrieved: neither the chunks of a document that now fails nor those of
+    one that is now quarantined.
+    """
     report = DocumentReport(
         doc_key=entry.doc_key,
         language=language,
         doc_type=entry.doc_type,
         format=entry.format,
-        status="failed",
+        status=status,
         chunks=0,
         error=message,
     )
@@ -499,7 +546,7 @@ async def _record_failure(
         async with session_factory() as session, session.begin():
             document = await _find(session, entry.doc_key, language)
             document = await _upsert(
-                session, document, entry, language, stored_path, content_hash, "failed", message
+                session, document, entry, language, stored_path, content_hash, status, message
             )
             await session.execute(delete(Chunk).where(Chunk.document_id == document.id))
     except Exception as error:  # the report still records the failure

@@ -6,8 +6,10 @@ id, 502 without provider text) is covered with a real database in
 `tests/integration/api/chat/test_service_history.py` and `test_chat_route.py`.
 """
 
+import json
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from typing import Any
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,11 +18,13 @@ from api.agent.events import AgentEvent, CitationEvent, DoneEvent, ErrorEvent
 from api.auth.deps import CurrentCustomer
 from api.chat import service as service_module
 from api.chat.schemas import ChatRequest, Citation
-from api.chat.service import ChatService, get_chat_service
+from api.chat.service import ChatService, OfflineTopicClient, get_chat_service
 from api.config import Settings, get_settings
 from api.db.engine import get_sessionmaker
 from api.errors import AtlasError, ErrorCode
+from api.llm.client import ChatMessage, LLMClient, LLMRequest
 from api.llm.fake import FakeLLMClient
+from api.llm.instrumented import InstrumentedLLMClient
 from api.rag.embeddings import EmbeddingClient, FakeEmbeddingClient, OpenAIEmbeddingClient
 from api.rag.retriever import Retriever
 
@@ -268,3 +272,73 @@ async def test_close_embedder_closes_the_cached_openai_client(
 
     assert closed == [True]
     assert service_module._embedder.cache_info().currsize == 0
+
+
+@pytest.mark.usefixtures("fake_provider_env")
+def test_get_chat_service_builds_one_guardrail_client_for_the_guardrail_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ATLAS_GUARDRAIL_MODEL", "guardrail-model")
+    get_settings.cache_clear()
+    service_module._guardrail_llm_client.cache_clear()
+    built: list[Settings] = []
+    real_build = service_module.build_llm_client
+
+    def spy(settings: Settings) -> LLMClient:
+        built.append(settings)
+        return real_build(settings)
+
+    monkeypatch.setattr(service_module, "build_llm_client", spy)
+    try:
+        first = get_chat_service(AsyncSession())
+        second = get_chat_service(AsyncSession())
+    finally:
+        service_module._guardrail_llm_client.cache_clear()
+
+    assert first.guardrail_llm is second.guardrail_llm
+    assert first.guardrail_llm is not first.llm
+    assert [s.primary_model for s in built if s.primary_model == "guardrail-model"] == [
+        "guardrail-model"
+    ]
+
+
+class _Wrapper:
+    """A recording/pacing wrapper of the demos: no provider of its own, the client in `inner`."""
+
+    def __init__(self, inner: object) -> None:
+        self.inner = inner
+
+
+@pytest.mark.parametrize(
+    "llm",
+    [
+        FakeLLMClient([]),
+        InstrumentedLLMClient(FakeLLMClient([]), model="fake-model", provider="fake"),
+        _Wrapper(InstrumentedLLMClient(FakeLLMClient([]), model="m", provider="fake")),
+    ],
+)
+def test_the_fake_provider_script_checks_the_topic_offline(llm: Any) -> None:
+    service = ChatService(llm, Settings(llm_provider="fake"), AsyncSession())
+
+    assert isinstance(service.guardrail_llm, OfflineTopicClient)
+
+
+class _ProviderClient:
+    """A real provider's client (or a test's own client answering the classifier calls)."""
+
+    provider = "anthropic"
+
+
+def test_any_other_chat_client_also_runs_the_topic_check() -> None:
+    llm: Any = _ProviderClient()
+    service = ChatService(llm, Settings(llm_provider="fake"), AsyncSession())
+
+    assert service.guardrail_llm is llm
+
+
+async def test_offline_topic_client_answers_on_topic() -> None:
+    response = await OfflineTopicClient().complete(
+        LLMRequest(system=[], messages=[ChatMessage(role="user", content="hi")])
+    )
+
+    assert json.loads(response.text) == {"on_topic": True, "reason": "offline fake provider"}

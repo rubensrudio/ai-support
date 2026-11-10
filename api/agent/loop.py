@@ -72,6 +72,19 @@ unchanged.
   model call in progress (or by the final answer just streamed). It is cleared when a call ends
   with tool calls (its text is a preamble, not glued to the answer that follows) and when a
   limit discards the call, so a discarded text is never stored as the partial answer.
+
+Phase 10 output guardrail (TASK-107, DA-22, GRD-04, GRD-08): with an `output_filter` (the chat
+service passes a `StreamOutputFilter` when `settings.guardrails_enabled`), every delta of a model
+call goes through `feed`, and only the approved sentences it returns become `TokenEvent`s. At the
+end of every model call that no limit discarded, `finish()` checks and releases the trailing text
+(the tail of a preamble before tools, or of the final answer). A block, at any point of the turn,
+ends it at the end of that model call with `done{status: 'blocked'}` and the standard message
+(`GUARDRAIL_BLOCKED`): no tool of that response runs, no confirmation is asked and no model call
+follows; it is logged as `guardrail_blocked{stage: 'output', reason}`. With a filter,
+`partial_text` and the final `done.content` are the text the filter released for the current
+model call (the concatenation of what `feed` and `finish` returned, which is the whole text when
+nothing is blocked). A call discarded by a limit is not finished: its `done{limit_reached}`
+replaces what was streamed, as before.
 """
 
 import copy
@@ -81,7 +94,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Literal, cast
+from typing import Any, Literal, Protocol, cast
 
 from api.agent.events import (
     AgentEvent,
@@ -94,6 +107,7 @@ from api.agent.events import (
 )
 from api.agent.guards import CostBudget, LimitReason, RepeatDetector, StepBudget
 from api.config import SUBSCRIPTION_PROVIDERS, Settings
+from api.guardrails.stream_filter import FilterOutcome
 from api.llm.client import (
     ChatMessage,
     LLMClient,
@@ -160,6 +174,14 @@ class AgentTurn:
 
 
 AuditReader = Callable[[str], Awaitable[list[Any]]]
+
+
+class OutputFilter(Protocol):
+    """What the loop needs of `StreamOutputFilter` (CT-75)."""
+
+    async def feed(self, delta: str) -> list[str]: ...
+
+    async def finish(self) -> FilterOutcome: ...
 
 
 # --- streams ---------------------------------------------------------------------------------
@@ -294,6 +316,11 @@ def _trace_ids_from(data: dict[str, Any]) -> list[str]:
         if value and str(value) not in trace_ids:
             trace_ids.append(str(value))
     return trace_ids
+
+
+def state_trace_ids(data: dict[str, Any]) -> list[str]:
+    """Trace ids of the requests of a serialised `AgentState`, oldest first."""
+    return _trace_ids_from(data)
 
 
 @dataclass
@@ -471,11 +498,13 @@ class AgentLoop:
         registry: ToolRegistry,
         settings: Settings,
         audit_reader: AuditReader | None = None,
+        output_filter: OutputFilter | None = None,
     ) -> None:
         self.llm = llm
         self.registry = registry
         self.settings = settings
         self.audit_reader = audit_reader
+        self.output_filter = output_filter
         self._streamed: list[str] = []
         self._resumed_settled = True
 
@@ -616,11 +645,22 @@ class AgentLoop:
             response = call_result.response
             run.record_response(response)
             reason = self._after_call(run, response)
+            if reason is None and self.output_filter is not None:
+                outcome = await self.output_filter.finish()
+                if outcome.blocked:
+                    yield self._blocked(outcome, ctx, conversation_id)
+                    return
+                if outcome.released:
+                    self._streamed.append(outcome.released)
+                    yield TokenEvent(text=outcome.released)
+            # With a filter, the answer is what it released (the whole text when nothing is
+            # blocked); without one, the text of the call.
+            content = self.partial_text if self.output_filter is not None else response.text
             if response.tool_calls or reason is not None:
                 # A preamble before tools, or a call discarded by a limit: not a partial.
                 self._streamed.clear()
             if reason is None and not response.tool_calls:
-                yield self._done("completed", ctx, conversation_id, content=response.text)
+                yield self._done("completed", ctx, conversation_id, content=content)
                 return
         if reason is not None:
             yield await self._limit(reason, run, ctx, conversation_id)
@@ -640,8 +680,9 @@ class AgentLoop:
             async for event in source:
                 if event.kind == "text_delta" and event.text:
                     parts.append(event.text)
-                    self._streamed.append(event.text)
-                    yield TokenEvent(text=event.text)
+                    for text in await self._release(event.text):
+                        self._streamed.append(text)
+                        yield TokenEvent(text=text)
                 elif event.kind == "tool_call" and event.tool_call is not None:
                     calls.append(event.tool_call)
                 elif event.kind == "usage" and event.usage is not None:
@@ -663,6 +704,25 @@ class AgentLoop:
             model=model,
             provider=provider,
             stop_reason=stop_reason,
+        )
+
+    async def _release(self, delta: str) -> list[str]:
+        """The pieces of `delta` that may be streamed: all of it without a filter, else the
+        sentences the filter approved (possibly none yet)."""
+        if self.output_filter is None:
+            return [delta]
+        return [text for text in await self.output_filter.feed(delta) if text]
+
+    def _blocked(
+        self, outcome: FilterOutcome, ctx: ToolContext, conversation_id: uuid.UUID | None
+    ) -> DoneEvent:
+        """The output guardrail blocked the answer: the standard message replaces all of it."""
+        log_event("guardrail_blocked", stage="output", reason=outcome.reason)
+        return self._done(
+            "blocked",
+            ctx,
+            conversation_id,
+            content=user_message(MessageKey.GUARDRAIL_BLOCKED, ctx.language),
         )
 
     def _identity(self) -> tuple[str, str]:

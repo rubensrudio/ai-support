@@ -156,6 +156,8 @@ class ContextAwareFakeLLM:
     - any other chat message: a fixed answer of about 150 tokens.
     """
 
+    provider = FAKE_PROVIDER  # offline fake: the chat's topic check runs offline too
+
     def __init__(self) -> None:
         self.requests: list[LLMRequest] = []
 

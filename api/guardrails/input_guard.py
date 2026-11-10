@@ -4,12 +4,20 @@
 text (`find_injection`). Injection -> `block` with the pattern names as reasons; otherwise `allow`
 with the masked text. Any internal exception -> `block` with reason `guard_failure` (fail-closed).
 `masked_text` is always the masked text (also when blocked), so nothing downstream sees raw PII.
+
+Injection is searched in the masked text AND in the original text, so masking can neither hide
+an attack nor create one. When masking itself fails, `masked_text` is empty: the raw text is
+never returned.
 """
 
+import contextlib
 from dataclasses import dataclass, field
 from typing import Literal
 
 from api.config import Settings
+from api.guardrails.patterns import find_injection
+from api.guardrails.pii import mask_pii
+from api.observability.logging import log_event
 
 GUARD_FAILURE = "guard_failure"
 
@@ -26,4 +34,15 @@ class InputGuard:
         self.settings = settings
 
     def check(self, text: str) -> InputVerdict:
-        raise NotImplementedError("TASK-102")
+        masked_text = ""
+        try:
+            masked_text = mask_pii(text).text
+            reasons = find_injection(masked_text)
+            reasons += [name for name in find_injection(text) if name not in reasons]
+        except Exception as exc:  # fail-closed (GRD-93, LAC-28): never re-raise
+            with contextlib.suppress(Exception):
+                log_event("guardrail.input.failure", error_type=type(exc).__name__)
+            return InputVerdict(action="block", masked_text=masked_text, reasons=[GUARD_FAILURE])
+        if reasons:
+            return InputVerdict(action="block", masked_text=masked_text, reasons=reasons)
+        return InputVerdict(action="allow", masked_text=masked_text)

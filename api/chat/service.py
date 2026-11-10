@@ -103,9 +103,43 @@ shield lets the commit finish on the request session (no second session is neede
 outlives the request). A failure while persisting is logged (`chat_cancel_persist_failed`) and
 the cancellation still propagates. Once the answer is committed (the first event of `_finish`),
 a cancellation changes nothing (STR-92).
+
+Phase 10 guardrails (TASK-107, GRD-01, GRD-04, GRD-06, GRD-07, GRD-08, GRD-91, GRD-93, OBS-91),
+only when `settings.guardrails_enabled` (without it everything above is unchanged):
+
+- input: `InputGuard.check` runs on the message before anything is persisted and before any LLM
+  call. From then on only its `masked_text` is used: the stored user message, the language
+  detection, the history, the retrieval query, the prompt and the logs (`chat_message` carries
+  the masked text, never the original). A `block` (an injection, or a guard failure) stores the
+  masked user message and the standard reply (`GUARDRAIL_BLOCKED` in the conversation language),
+  both with `status='blocked'`, logs `guardrail_blocked{stage: 'input', reasons}` (never the
+  text) and ends with `start` and `done{status: 'blocked'}`, with no LLM call. Blocked messages
+  are left out of the history window of later turns, so an attack never reaches the model later;
+- output: the agent loop gets a `StreamOutputFilter(OutputGuard(guardrail_llm), OutputContext)`
+  (see `api/agent/loop.py`): only approved sentences become `token` events, and a block ends the
+  turn with `done{status: 'blocked'}` and the standard message, stored with `status='blocked'`
+  in place of the whole answer. The `OutputContext` holds the customer's own order ids (read from
+  the database), which of them are cancelled or have a refund (round 1, so stating that state is
+  not a promise), the order numbers cited in the masked question (`question_order_ids`, which the
+  answer may repeat), the session e-mail, the masked question, the reply language and the tools
+  with a `success` audit row in the request's trace ids (`run` and, after a confirmation, the
+  earlier requests of the turn); the orders and the tools are read again after every
+  `tool_end`. The plain chat path (no tools) puts its whole answer through the same filter. The
+  confirmation path (`resolve_confirmation`) is guarded the same way, with the last user message
+  of the conversation as the question. A cancelled stream stores as partial only the text the
+  filter already released;
+- `guardrail_llm` runs the topic check. `get_chat_service` passes a client built for
+  `ATLAS_GUARDRAIL_MODEL` when it is set (one per process); otherwise the chat client is used,
+  except when the chat client is the offline fake provider (a `FakeLLMClient`, or a client whose
+  `provider` is `fake`, possibly behind `inner` wrappers: tests and `--provider fake` demos): its
+  script holds only chat answers, so the topic check answers "on topic" offline
+  (`OfflineTopicClient`). A test that exercises the classifier injects `guardrail_llm`, or hands
+  a chat client of its own (no `fake` provider) that also answers the classifier calls.
 """
 
 import asyncio
+import re
+import unicodedata
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, replace
@@ -115,6 +149,7 @@ from typing import Annotated, Any, cast
 
 import anyio
 from fastapi import Depends
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.agent.confirmations import ConfirmationStore
@@ -126,6 +161,7 @@ from api.agent.events import (
     DoneEvent,
     ErrorEvent,
     StartEvent,
+    ToolEndEvent,
 )
 from api.agent.loop import (
     AgentLoop,
@@ -135,11 +171,12 @@ from api.agent.loop import (
     SuspendFn,
     aclose_stream,
     closing_stream,
+    state_trace_ids,
 )
 from api.agent.models import PendingConfirmation
 from api.auth.deps import CurrentCustomer
 from api.chat.context import HistoryWindow, LLMSummarizer, build_history, summary_block
-from api.chat.language import detect_language
+from api.chat.language import DetectedLanguage, detect_language
 from api.chat.models import Conversation
 from api.chat.prompt_builder import (
     LANGUAGE_NAMES,
@@ -152,8 +189,22 @@ from api.chat.schemas import ChatRequest, ChatResponse, Citation
 from api.config import Settings, get_settings
 from api.db.engine import get_db_session, get_sessionmaker
 from api.errors import AtlasError, ErrorCode
-from api.llm.client import LLMClient, LLMError, LLMRequest, SystemBlock, ToolCall, ToolSpec
+from api.guardrails.input_guard import InputGuard, InputVerdict
+from api.guardrails.output_guard import OutputContext, OutputGuard
+from api.guardrails.stream_filter import StreamOutputFilter
+from api.llm.client import (
+    LLMClient,
+    LLMError,
+    LLMRequest,
+    LLMResponse,
+    LLMStreamEvent,
+    SystemBlock,
+    ToolCall,
+    ToolSpec,
+    Usage,
+)
 from api.llm.factory import build_llm_client
+from api.llm.fake import FAKE_MODEL, FAKE_PROVIDER, FakeLLMClient
 from api.messages import Lang, MessageKey, user_message
 from api.observability.logging import get_trace_id, log_event
 from api.rag.citations import extract_citations
@@ -161,7 +212,7 @@ from api.rag.embeddings import EmbeddingClient, OpenAIEmbeddingClient, build_emb
 from api.rag.retriever import RetrievalUnavailable, RetrievedChunk, Retriever, is_vector_mode
 from api.tools.audit import list_successful_actions
 from api.tools.catalog import build_default_registry
-from api.tools.models import CURRENCY
+from api.tools.models import CURRENCY, Order, OrderStatus, Refund
 from api.tools.refunds import CheckRefundArgs, check_refund_policy
 from api.tools.registry import ToolContext, ToolRegistry
 
@@ -209,6 +260,7 @@ class ChatService:
         session: AsyncSession,
         retriever: Retriever | None = None,
         registry: ToolRegistry | None = None,
+        guardrail_llm: LLMClient | None = None,
     ) -> None:
         self.llm = llm
         self.settings = settings
@@ -217,6 +269,9 @@ class ChatService:
         self.registry = registry if registry is not None else build_default_registry()
         self.repository = ConversationRepository(session)
         self.confirmations = ConfirmationStore(session, settings)
+        self.guardrail_llm = (
+            guardrail_llm if guardrail_llm is not None else _default_guardrail_llm(llm)
+        )
 
     @property
     def tools_enabled(self) -> bool:
@@ -296,17 +351,28 @@ class ChatService:
         self, request: ChatRequest, principal: CurrentCustomer
     ) -> AsyncIterator[AgentEvent]:
         trace_id = get_trace_id()
+        # GRD-01/GRD-07: checked before anything is stored or sent; from here on only the
+        # masked text is used (`message`), never `request.message`.
+        verdict = self._input_verdict(request.message)
+        message = verdict.masked_text if verdict is not None else request.message
         # `get_owned` already checked that the conversation is the principal's, so refusing its
         # pending confirmations cannot touch another customer's (`refuse_pending` takes no owner).
         conversation = await self._conversation(request, principal)
         if request.conversation_id is not None:
             await self._refuse_pending(conversation, trace_id)
         fallback: Lang = request.ui_language or principal.language
-        detected = detect_language(request.message, fallback=fallback)
+        detected = detect_language(message, fallback=fallback)
+        if verdict is not None and verdict.action == "block":
+            async for event in self._block_input(
+                conversation.id, message, detected, fallback, verdict, trace_id
+            ):
+                yield event
+            return
         await self.repository.append_message(
-            conversation.id, "user", request.message, "complete", detected, trace_id
+            conversation.id, "user", message, "complete", detected, trace_id
         )
         await self.session.commit()
+        self._log_message(conversation.id, message, detected)
         # Round 1: the first event, once the user message is committed and the conversation
         # exists, before any token or tool (the JSON `collect` ignores it).
         yield StartEvent(conversation_id=conversation.id, trace_id=trace_id)
@@ -322,7 +388,7 @@ class ChatService:
 
         reply_language: Lang = detected
         try:
-            chunks = await self._retrieve(request.message, reply_language)
+            chunks = await self._retrieve(message, reply_language)
         except RetrievalUnavailable as exc:
             log_event(
                 "chat_knowledge_unavailable",
@@ -334,33 +400,72 @@ class ChatService:
                 yield event
             return
 
+        guard = await self._output_guardrail(principal, message, reply_language, [trace_id])
         if not self.tools_enabled:
-            content = await self._llm_reply(conversation, reply_language, request.message, chunks)
-            async for event in self._finish(
-                conversation.id, content, reply_language, trace_id, chunks=chunks
-            ):
+            answer = self._plain_answer(
+                conversation, message, reply_language, chunks, guard, trace_id
+            )
+        else:
+            answer = self._agent_answer(
+                conversation, principal, message, reply_language, chunks, guard, trace_id
+            )
+        async with closing_stream(answer) as stream:
+            async for event in stream:
                 yield event
-            return
 
+    async def _plain_answer(
+        self,
+        conversation: Conversation,
+        message: str,
+        language: Lang,
+        chunks: list[RetrievedChunk] | None,
+        guard: "_OutputGuardrail | None",
+        trace_id: str,
+    ) -> AsyncIterator[AgentEvent]:
+        """One `complete()` call (tools off or a provider without tools), its whole answer put
+        through the output filter when the guardrails are on."""
+        content = await self._llm_reply(conversation, language, message, chunks)
+        status: ChatStatus = "completed"
+        if guard is not None:
+            released = await guard.check_text(content)
+            if released is None:
+                content, status, chunks = _blocked_text(language), "blocked", None
+            else:
+                content = released
+        async for event in self._finish(
+            conversation.id, content, language, trace_id, chunks=chunks, status=status
+        ):
+            yield event
+
+    async def _agent_answer(
+        self,
+        conversation: Conversation,
+        principal: CurrentCustomer,
+        message: str,
+        language: Lang,
+        chunks: list[RetrievedChunk] | None,
+        guard: "_OutputGuardrail | None",
+        trace_id: str,
+    ) -> AsyncIterator[AgentEvent]:
+        """The agent loop (CT-45) with the tools, driven and stored by `_drive`."""
         window = await self._window(conversation)
-        llm_request = self._request(
-            window, reply_language, request.message, chunks, self.registry.specs()
-        )
-        ctx = self._tool_context(principal, trace_id, reply_language)
+        llm_request = self._request(window, language, message, chunks, self.registry.specs())
+        ctx = self._tool_context(principal, trace_id, language)
         turn = AgentTurn(
             request=llm_request,
             ctx=ctx,
             suspend=self._suspend_fn(conversation.id, ctx),
             conversation_id=conversation.id,
         )
-        loop = self._loop()
+        loop = self._loop(guard)
         driven = self._drive(
             loop.run(turn),
             conversation.id,
             chunks,
             partial=lambda: loop.partial_text,
-            language=reply_language,
+            language=language,
             trace_id=trace_id,
+            guard=guard,
         )
         async with closing_stream(driven) as stream:
             async for event in stream:
@@ -378,7 +483,13 @@ class ChatService:
             language = _state_language(pending.agent_state, customer.language)
             # Identity, session and clock come from the current request, never from the state.
             ctx = self._tool_context(customer, trace_id, language)
-            loop = self._loop()
+            guard = await self._output_guardrail(
+                customer,
+                await self._last_question(pending.conversation_id),
+                language,
+                [*state_trace_ids(pending.agent_state), trace_id],
+            )
+            loop = self._loop(guard)
             events = loop.resume(
                 state,
                 decision,
@@ -394,6 +505,7 @@ class ChatService:
                 is_settled=lambda: loop.resumed_call_settled,
                 language=language,
                 trace_id=trace_id,
+                guard=guard,
             )
             driving = True  # from here `_drive` handles a cancellation
             async with closing_stream(driven) as stream:
@@ -435,6 +547,7 @@ class ChatService:
         language: Lang,
         trace_id: str,
         is_settled: Callable[[], bool] = lambda: True,
+        guard: "_OutputGuardrail | None" = None,
     ) -> AsyncIterator[AgentEvent]:
         """Forward the loop's events, then store the answer and emit the final `done`.
 
@@ -444,7 +557,7 @@ class ChatService:
         False (a resume whose confirmed tool has not run yet) it rolls back instead.
         """
         progress = _Progress()
-        settle = self._settle(events, conversation_id, chunks, progress)
+        settle = self._settle(events, conversation_id, chunks, progress, guard)
         try:
             async with closing_stream(settle) as settled:
                 async for event in settled:
@@ -516,6 +629,7 @@ class ChatService:
         conversation_id: uuid.UUID,
         chunks: list[RetrievedChunk] | None,
         progress: "_Progress",
+        guard: "_OutputGuardrail | None" = None,
     ) -> AsyncIterator[AgentEvent]:
         """`_drive` without the cancellation handling; records in `progress` when the answer
         is committed."""
@@ -526,6 +640,9 @@ class ChatService:
                     if isinstance(event, DoneEvent):
                         final = event
                         break
+                    if guard is not None and isinstance(event, ToolEndEvent):
+                        # GRD-08: the next model call is checked against what really ran.
+                        await guard.refresh(self.session)
                     yield event
         except LLMError as exc:
             raise _llm_unavailable(exc) from exc
@@ -553,7 +670,7 @@ class ChatService:
             final.content,
             final.language,
             final.trace_id,
-            chunks=chunks,
+            chunks=chunks if status != "blocked" else None,
             status=status,
         ):
             progress.stored = True  # `_finish` yields only after its commit
@@ -572,8 +689,9 @@ class ChatService:
     ) -> AsyncIterator[AgentEvent]:
         """Store the assistant reply, commit, then emit its citations and the `done` event."""
         citations = extract_citations(content, chunks) if chunks is not None else []
+        message_status = "blocked" if status == "blocked" else "complete"
         reply = await self.repository.append_message(
-            conversation_id, "assistant", content, "complete", language, trace_id
+            conversation_id, "assistant", content, message_status, language, trace_id
         )
         await self.session.commit()
         for citation in citations:
@@ -608,11 +726,83 @@ class ChatService:
                 tool=row.tool,
             )
 
-    def _loop(self) -> AgentLoop:
+    def _loop(self, guard: "_OutputGuardrail | None" = None) -> AgentLoop:
         async def audit_reader(trace_id: str) -> list[Any]:
             return list(await list_successful_actions(self.session, trace_id))
 
-        return AgentLoop(self.llm, self.registry, self.settings, audit_reader)
+        output_filter = guard.filter if guard is not None else None
+        return AgentLoop(
+            self.llm, self.registry, self.settings, audit_reader, output_filter=output_filter
+        )
+
+    def _input_verdict(self, message: str) -> InputVerdict | None:
+        """`InputGuard` verdict, or None when the guardrails are off."""
+        if not self.settings.guardrails_enabled:
+            return None
+        return InputGuard(self.settings).check(message)
+
+    async def _block_input(
+        self,
+        conversation_id: uuid.UUID,
+        masked: str,
+        detected: DetectedLanguage,
+        fallback: Lang,
+        verdict: InputVerdict,
+        trace_id: str,
+    ) -> AsyncIterator[AgentEvent]:
+        """GRD-06: store the masked message and the standard reply, both `blocked`, without
+        any LLM call."""
+        language: Lang = detected if detected in ("pt", "en") else fallback
+        await self.repository.append_message(
+            conversation_id, "user", masked, "blocked", detected, trace_id
+        )
+        await self.session.commit()
+        log_event(
+            "guardrail_blocked",
+            stage="input",
+            reasons=list(verdict.reasons),
+            conversation_id=str(conversation_id),
+        )
+        yield StartEvent(conversation_id=conversation_id, trace_id=trace_id)
+        async for event in self._finish(
+            conversation_id, _blocked_text(language), language, trace_id, status="blocked"
+        ):
+            yield event
+
+    def _log_message(self, conversation_id: uuid.UUID, message: str, language: str) -> None:
+        """OBS-91: the logged content is the masked text; without guardrails it is not logged."""
+        fields: dict[str, object] = {"conversation_id": str(conversation_id)}
+        if self.settings.guardrails_enabled:
+            fields["content"] = message
+        log_event("chat_message", language=language, chars=len(message), **fields)
+
+    async def _output_guardrail(
+        self, principal: CurrentCustomer, question: str, language: Lang, trace_ids: list[str]
+    ) -> "_OutputGuardrail | None":
+        """The output filter of one request, or None when the guardrails are off."""
+        if not self.settings.guardrails_enabled:
+            return None
+        ctx = OutputContext(
+            customer_id=principal.id,
+            own_order_ids=set(),
+            own_email=principal.email,
+            successful_tools=set(),
+            question=question,
+            language=language,
+            question_order_ids=question_order_ids(question),
+        )
+        guard = _OutputGuardrail(
+            filter=StreamOutputFilter(OutputGuard(self.guardrail_llm, self.settings), ctx),
+            ctx=ctx,
+            trace_ids=list(dict.fromkeys(trace_ids)),
+        )
+        await guard.refresh(self.session)
+        return guard
+
+    async def _last_question(self, conversation_id: uuid.UUID) -> str:
+        """The last user message of the conversation (stored masked), for the topic check."""
+        messages = await self.repository.list_messages(conversation_id)
+        return next((m.content for m in reversed(messages) if m.role == "user"), "")
 
     def _tool_context(
         self, principal: CurrentCustomer, trace_id: str, language: Lang
@@ -710,10 +900,11 @@ class ChatService:
     async def _window(self, conversation: Conversation) -> HistoryWindow:
         """History window of `conversation` (CT-22); stores a new summary when one is made."""
         upto = conversation.summary_upto_message_id
+        # Blocked turns (an attack and its standard reply) never go back to the model.
         pending = [
             message
             for message in await self.repository.list_messages(conversation.id)
-            if upto is None or message.id > upto
+            if (upto is None or message.id > upto) and message.status != "blocked"
         ]
         try:
             window = await build_history(
@@ -758,6 +949,120 @@ class _Progress:
     """Whether the answer of a streamed turn is already committed."""
 
     stored: bool = False
+
+
+@dataclass
+class _OutputGuardrail:
+    """The output filter of one request and the context it checks against."""
+
+    filter: StreamOutputFilter
+    ctx: OutputContext
+    trace_ids: list[str]
+
+    async def refresh(self, session: AsyncSession) -> None:
+        """Read again what the answer may state: the customer's orders, which of them are
+        cancelled or refunded (one query), and the tools with a `success` audit row in the
+        request's traces (GRD-08). Called once at the start and after every `tool_end`, so a
+        cancellation or refund done in this request counts."""
+        statement = (
+            select(Order.id, Order.status, Refund.id)
+            .outerjoin(Refund, Refund.order_id == Order.id)
+            .where(Order.customer_id == self.ctx.customer_id)
+        )
+        for order_id, status, refund_id in (await session.execute(statement)).all():
+            self.ctx.own_order_ids.add(order_id)
+            if status == OrderStatus.CANCELLED:
+                self.ctx.cancelled_order_ids.add(order_id)
+            if refund_id is not None:
+                self.ctx.refunded_order_ids.add(order_id)
+        for trace_id in self.trace_ids:
+            rows = await list_successful_actions(session, trace_id)
+            self.ctx.successful_tools.update(row.tool for row in rows)
+
+    async def check_text(self, text: str) -> str | None:
+        """Whole-answer check (the plain chat path): the released text, or None if blocked."""
+        released = "".join(await self.filter.feed(text))
+        outcome = await self.filter.finish()
+        if outcome.blocked:
+            log_event("guardrail_blocked", stage="output", reason=outcome.reason)
+            return None
+        return released + outcome.released
+
+
+class OfflineTopicClient:
+    """Topic classifier of the offline `fake` provider: every answer is on topic.
+
+    The fake chat client replays a script, so it cannot also answer the topic check; tests that
+    exercise the classifier inject their own `guardrail_llm`. Never used with a real provider.
+    """
+
+    VERDICT = '{"on_topic": true, "reason": "offline fake provider"}'
+
+    async def complete(self, request: LLMRequest) -> LLMResponse:
+        return LLMResponse(
+            text=self.VERDICT,
+            tool_calls=[],
+            usage=Usage(input_tokens=0, output_tokens=0),
+            model=FAKE_MODEL,
+            provider=FAKE_PROVIDER,
+            stop_reason="end_turn",
+        )
+
+    def stream(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
+        return self._stream(request)
+
+    async def _stream(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
+        response = await self.complete(request)
+        yield LLMStreamEvent(kind="text_delta", text=response.text)
+        yield LLMStreamEvent(kind="usage", usage=response.usage)
+        yield LLMStreamEvent(kind="stop", stop_reason=response.stop_reason)
+
+
+# How many `inner` wrappers (instrumentation, recording, pacing) `_is_fake_script` looks through.
+_MAX_WRAPPERS = 5
+
+
+def _is_fake_script(llm: object) -> bool:
+    """The chat client is the offline fake provider: a `FakeLLMClient`, or a client that names
+    `fake` as its provider, possibly behind `inner` wrappers. Its script holds chat answers only.
+    """
+    for _ in range(_MAX_WRAPPERS):
+        if isinstance(llm, FakeLLMClient) or getattr(llm, "provider", None) == FAKE_PROVIDER:
+            return True
+        llm = getattr(llm, "inner", None)
+        if llm is None:
+            return False
+    return False
+
+
+def _default_guardrail_llm(llm: LLMClient) -> LLMClient:
+    """The topic classifier when none is injected: the chat client, or the offline one when the
+    chat client is the fake provider's script (`_is_fake_script`)."""
+    return OfflineTopicClient() if _is_fake_script(llm) else llm
+
+
+# Order numbers the customer wrote (`#13`, "order 13", "pedido 13"), as the output guard reads
+# them in the answer (CT-55).
+_QUESTION_ORDER = re.compile(
+    r"(?<![\w&#])#\s?(?P<hash>\d+)\b"
+    r"|\b(?:orders?|pedidos?|encomendas?)\s+(?:de\s+)?"
+    r"(?:(?:number|numero|num\.?|no\.?|n\.)\s*)?#?\s*(?P<word>\d+)\b",
+    re.IGNORECASE,
+)
+
+
+def question_order_ids(question: str) -> set[int]:
+    """Order numbers cited in the (masked) question, which the answer may repeat even when they
+    are not the customer's ("I couldn't find order #13")."""
+    text = unicodedata.normalize("NFKD", question)
+    text = "".join(ch for ch in text if unicodedata.category(ch) not in {"Mn", "Cf"})
+    return {
+        int(match.group("hash") or match.group("word")) for match in _QUESTION_ORDER.finditer(text)
+    }
+
+
+def _blocked_text(language: Lang) -> str:
+    return user_message(MessageKey.GUARDRAIL_BLOCKED, language)
 
 
 def _llm_unavailable(exc: LLMError) -> AtlasError:
@@ -815,6 +1120,16 @@ def _llm_client() -> LLMClient:
 
 
 @lru_cache(maxsize=1)
+def _guardrail_llm_client() -> LLMClient | None:
+    """One client per process for `ATLAS_GUARDRAIL_MODEL`; None without it (the chat client
+    is used, see `_default_guardrail_llm`)."""
+    settings = get_settings()
+    if not settings.guardrail_model:
+        return None
+    return build_llm_client(settings.model_copy(update={"primary_model": settings.guardrail_model}))
+
+
+@lru_cache(maxsize=1)
 def _embedder() -> EmbeddingClient:
     """One embedding client per process, built from the settings on first use."""
     return build_embedder(get_settings())
@@ -848,4 +1163,11 @@ def get_chat_service(
     settings = get_settings()
     embedder = _embedder() if is_vector_mode(settings.retrieval_mode) else None
     retriever = Retriever(get_sessionmaker(), embedder, settings)
-    return ChatService(_llm_client(), settings, session, retriever=retriever, registry=_registry())
+    return ChatService(
+        _llm_client(),
+        settings,
+        session,
+        retriever=retriever,
+        registry=_registry(),
+        guardrail_llm=_guardrail_llm_client(),
+    )

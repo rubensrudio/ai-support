@@ -66,7 +66,9 @@ async def owner(make_customer: CustomerFactory) -> Customer:
 
 @pytest.fixture
 def service(fake: FakeLLMClient, db_session: AsyncSession) -> ChatService:
-    return ChatService(fake, Settings(llm_provider="fake"), db_session)
+    # Phase 09 token granularity (one token per delta): the phase 10 output filter releases
+    # whole sentences, so it is off here (covered by test_service_guardrails.py).
+    return ChatService(fake, Settings(llm_provider="fake", guardrails_enabled=False), db_session)
 
 
 @pytest.fixture

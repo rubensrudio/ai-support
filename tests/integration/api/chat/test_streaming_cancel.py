@@ -102,7 +102,10 @@ class StallingLLM(FakeLLMClient):
 def _service(
     llm: FakeLLMClient, session: AsyncSession, retriever: Retriever | None = None
 ) -> ChatService:
-    return ChatService(llm, Settings(llm_provider="fake"), session, retriever=retriever)
+    # Phase 09 token granularity (one token per delta): the phase 10 output filter releases
+    # whole sentences, so it is off here (covered by test_service_guardrails.py).
+    settings = Settings(llm_provider="fake", guardrails_enabled=False)
+    return ChatService(llm, settings, session, retriever=retriever)
 
 
 async def _messages(session: AsyncSession, customer: Customer) -> list[Message]:

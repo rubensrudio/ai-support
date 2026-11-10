@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.agent.events import CitationEvent, DoneEvent, StartEvent, TokenEvent
 from api.chat.models import Conversation
-from api.chat.prompt_builder import NO_EXCERPTS_INSTRUCTION, system_prompt
+from api.chat.prompt_builder import (
+    NO_EXCERPTS_INSTRUCTION,
+    grounded_system_prompt,
+    system_prompt,
+)
 from api.chat.repository import ConversationRepository
 from api.chat.schemas import ChatRequest, Citation
 from api.chat.service import ChatService
@@ -118,9 +122,9 @@ async def test_response_citations_match_markers_of_the_answer(
     assert len(fake.requests) == 1
     sent = _sent_text(fake.requests[0])
     for n, chunk in enumerate(CHUNKS, start=1):
-        assert f'<excerpt index="{n}" title="{chunk.document_title}"' in sent
+        assert f'<untrusted_document index="{n}" source="{chunk.document_title}"' in sent
         assert chunk.content in sent
-    assert fake.requests[0].system[0].text == system_prompt("en")
+    assert fake.requests[0].system[0].text == grounded_system_prompt("en")
     assert (
         fake.requests[0]
         .messages[-1]
@@ -248,7 +252,7 @@ async def test_prompt_layout_comes_from_settings(
     request = fake.requests[0]
     assert request.system[0].cache_breakpoint is (layout == "cache_ordered")
     assert len(request.system) == 1
-    assert '<excerpt index="1" title="Help article 1"' in request.messages[-1].content
+    assert '<untrusted_document index="1" source="Help article 1"' in request.messages[-1].content
 
 
 async def test_retrieval_mode_none_keeps_phase_two_request(
