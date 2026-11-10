@@ -37,6 +37,7 @@ import { I18nService } from '../../core/i18n/i18n.service';
 import { LangSwitchComponent } from '../../core/i18n/lang-switch.component';
 import { MESSAGES, MessageKey } from '../../core/i18n/messages';
 import { ConfirmationCardComponent } from './confirmation-card.component';
+import { MessageMetaComponent } from './message-meta.component';
 
 /**
  * Lifecycle of a turn: an assistant turn is `streaming` from the moment the message is sent
@@ -55,6 +56,10 @@ interface ChatTurn {
   status: ChatStatus | null;
   phase: TurnPhase;
   sources: readonly Source[];
+  /** Trace of the assistant turn (OBS-06): from `start`, confirmed by `done`/`error`. */
+  traceId: string | null;
+  /** Stored assistant message, rated through the feedback buttons (OBS-02); from `done`. */
+  messageId: number | null;
 }
 
 type Validation = 'empty' | 'tooLong' | null;
@@ -123,7 +128,7 @@ function stepKey(tool: string): MessageKey {
  */
 @Component({
   selector: 'app-chat-page',
-  imports: [LangSwitchComponent, ConfirmationCardComponent],
+  imports: [LangSwitchComponent, ConfirmationCardComponent, MessageMetaComponent],
   templateUrl: './chat.page.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -312,6 +317,7 @@ export class ChatPage {
       case 'start':
         // Known from the first event, so a cancel or failure before `done` keeps the conversation.
         if (event.conversation_id) this.conversationId.set(event.conversation_id);
+        if (event.trace_id) this.updateTurn(active.turnId, { traceId: event.trace_id });
         break;
       case 'token':
         this.turns.update((turns) =>
@@ -333,6 +339,7 @@ export class ChatPage {
         this.onDone(active, event);
         break;
       case 'error':
+        if (event.trace_id) this.updateTurn(active.turnId, { traceId: event.trace_id });
         if (active.decision) this.failDecision(active, sseApiError(event));
         else this.fail(active);
         break;
@@ -361,7 +368,14 @@ export class ChatPage {
     this.turns.update((turns) =>
       turns.map((t) =>
         t.id === active.turnId
-          ? { ...t, content: done.content || t.content, status: done.status, phase: 'complete' }
+          ? {
+              ...t,
+              content: done.content || t.content,
+              status: done.status,
+              phase: 'complete',
+              traceId: done.trace_id || t.traceId,
+              messageId: done.message_id,
+            }
           : t,
       ),
     );
@@ -449,7 +463,16 @@ export class ChatPage {
   }
 
   private push(role: ChatTurn['role'], content: string, phase: TurnPhase): ChatTurn {
-    const turn: ChatTurn = { id: this.nextId++, role, content, status: null, phase, sources: [] };
+    const turn: ChatTurn = {
+      id: this.nextId++,
+      role,
+      content,
+      status: null,
+      phase,
+      sources: [],
+      traceId: null,
+      messageId: null,
+    };
     this.turns.update((turns) => [...turns, turn]);
     return turn;
   }

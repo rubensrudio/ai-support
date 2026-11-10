@@ -76,6 +76,14 @@ const en = {
   'tools.issue_refund': 'issue refund',
   'tools.unknown': 'run action',
 
+  'feedback.traceLabel': 'Trace',
+  'feedback.copy': 'Copy trace ID',
+  'feedback.copied': 'Copied',
+  'feedback.groupLabel': 'Rate this answer',
+  'feedback.up': 'Helpful answer',
+  'feedback.down': 'Not helpful answer',
+  'feedback.error': "Couldn't send your feedback. Please try again.",
+
   'errors.VALIDATION_ERROR': 'The message is empty or a field is invalid.',
   'errors.MESSAGE_TOO_LONG': 'The message is longer than {max} characters.',
   'errors.AUTH_REQUIRED': 'Please sign in with a test account.',
@@ -166,6 +174,14 @@ const pt: Record<MessageKey, string> = {
   'tools.cancel_order': 'cancelar pedido',
   'tools.issue_refund': 'emitir reembolso',
   'tools.unknown': 'executar ação',
+
+  'feedback.traceLabel': 'Trace',
+  'feedback.copy': 'Copiar ID do trace',
+  'feedback.copied': 'Copiado',
+  'feedback.groupLabel': 'Avalie esta resposta',
+  'feedback.up': 'Resposta útil',
+  'feedback.down': 'Resposta não útil',
+  'feedback.error': 'Não foi possível enviar sua avaliação. Tente de novo.',
 
   'errors.VALIDATION_ERROR': 'A mensagem está vazia ou algum campo é inválido.',
   'errors.MESSAGE_TOO_LONG': 'A mensagem passou de {max} caracteres.',

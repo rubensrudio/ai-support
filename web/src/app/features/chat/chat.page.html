@@ -83,6 +83,9 @@
                 }
               </div>
             }
+            @if (turn.role === 'assistant' && turn.traceId && turn.phase !== 'streaming') {
+              <app-message-meta [traceId]="turn.traceId" [messageId]="turn.messageId" />
+            }
           </article>
         }
         @if (pending(); as pendingAction) {

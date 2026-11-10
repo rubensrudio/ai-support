@@ -8,8 +8,14 @@ call (`args_model.model_json_schema()`), so they never drift (TOOL-02). Every ar
 `UNKNOWN_TOOL`, arguments that fail validation return `INVALID_ARGUMENTS` with the validation
 messages in `content` and the handler is not called (TOOL-94). Handler errors are returned as
 results by the agent loop (AGT-04), not here.
+
+Phase 14 (TASK-133, OBS-01): `execute` is one `tool` span (CT-62) with the tool name, the
+arguments (JSON, masked by `start_span`) and the result (`ok`, `error_code`, and the content
+masked as a whole, then cut at `TOOL_CONTENT_MAX_CHARS`). A handler exception keeps
+propagating; the span records its type only.
 """
 
+import json
 import re
 import uuid
 from collections.abc import Awaitable, Callable, Iterator
@@ -17,13 +23,25 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, get_args
 
+from opentelemetry.trace import Status, StatusCode
 from pydantic import BaseModel, PydanticUserError, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.guardrails.pii import mask_pii
 from api.llm.client import ToolCall, ToolSpec
 from api.messages import Lang
+from api.observability.tracing import start_span
 
 IDENTITY_FIELDS: frozenset[str] = frozenset({"customer_id", "user_id", "email", "to", "recipient"})
+TOOL_CONTENT_MAX_CHARS = 2000
+
+
+def _mask(text: str) -> str:
+    return mask_pii(text).text
+
+
+def _json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, default=str, sort_keys=True)
 
 
 class ToolErrorCode:
@@ -225,6 +243,32 @@ class ToolRegistry:
         return None if result.ok else result
 
     async def execute(self, call: ToolCall, ctx: ToolContext) -> ToolResult:
+        failure: Exception | None = None
+        with start_span(
+            "tool",
+            **{"atlas.tool.name": call.name, "atlas.tool.arguments": _json(call.arguments)},
+        ) as span:
+            try:
+                result = await self._execute(call, ctx)
+            except Exception as exc:
+                # Raised after the span ends: only the type is recorded, never the message.
+                span.set_attribute("error.type", type(exc).__name__)
+                span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
+                failure = exc
+            else:
+                span.set_attribute("atlas.tool.ok", result.ok)
+                if result.error_code is not None:
+                    span.set_attribute("atlas.tool.error_code", result.error_code)
+                # `set_attribute` does not mask: the whole content is masked here, then cut, so
+                # PII split by the cut cannot escape the mask (OBS-91).
+                span.set_attribute(
+                    "atlas.tool.result", _mask(_json(result.content))[:TOOL_CONTENT_MAX_CHARS]
+                )
+        if failure is not None:
+            raise failure
+        return result
+
+    async def _execute(self, call: ToolCall, ctx: ToolContext) -> ToolResult:
         resolved = self._resolve(call)
         if isinstance(resolved, ToolResult):
             return resolved

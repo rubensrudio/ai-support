@@ -18,6 +18,10 @@ cited, only the tool in `successful_tools` backs it. Every promise of the senten
 `successful_tools`. `LLMRequest` carries no model, so
 the topic check runs on the injected client (`settings.guardrail_model` selects the model only
 when the app wires a client built for it).
+
+Phase 14 (TASK-133, OBS-01): `check_sentence` and `check_topic` are each one `guardrail` span
+(CT-62) with the type (`output`), the check (`sentence`/`topic`), the verdict and the reason;
+never the sentence or the question.
 """
 
 import contextlib
@@ -25,14 +29,18 @@ import json
 import re
 import unicodedata
 import uuid
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import Any, Literal
+
+from opentelemetry.trace import Span
 
 from api.config import Settings
 from api.guardrails.patterns import find_action_promises
 from api.llm.client import ChatMessage, LLMClient, LLMRequest, SystemBlock
 from api.messages import Lang
 from api.observability.logging import log_event
+from api.observability.tracing import start_span
 from api.prompts import load_prompt
 
 OFF_TOPIC = "off_topic"
@@ -171,6 +179,18 @@ def _block(reason: str) -> OutputVerdict:
     return OutputVerdict(action="block", reason=reason)
 
 
+def _guard_span(check: str) -> AbstractContextManager[Span]:
+    return start_span(
+        "guardrail", **{"atlas.guardrail.type": "output", "atlas.guardrail.check": check}
+    )
+
+
+def _record_verdict(span: Span, verdict: OutputVerdict) -> None:
+    span.set_attribute("atlas.guardrail.verdict", verdict.action)
+    if verdict.reason is not None:
+        span.set_attribute("atlas.guardrail.reason", verdict.reason)
+
+
 def _log_failure(check: str, exc: BaseException) -> None:
     with contextlib.suppress(Exception):
         log_event("guardrail.output.failure", check=check, error_type=type(exc).__name__)
@@ -257,11 +277,14 @@ class OutputGuard:
         self.settings = settings
 
     async def check_sentence(self, sentence: str, ctx: OutputContext) -> OutputVerdict:
-        try:
-            return self._check_sentence(sentence, ctx)
-        except Exception as exc:  # fail-closed (GRD-93, LAC-28): never re-raise
-            _log_failure("sentence", exc)
-            return _block(GUARD_FAILURE)
+        with _guard_span("sentence") as span:
+            try:
+                verdict = self._check_sentence(sentence, ctx)
+            except Exception as exc:  # fail-closed (GRD-93, LAC-28): never re-raise
+                _log_failure("sentence", exc)
+                verdict = _block(GUARD_FAILURE)
+            _record_verdict(span, verdict)
+            return verdict
 
     def _check_sentence(self, sentence: str, ctx: OutputContext) -> OutputVerdict:
         text = _normalize(sentence)
@@ -282,6 +305,12 @@ class OutputGuard:
         return _ALLOW
 
     async def check_topic(self, question: str, first_sentence: str, lang: Lang) -> OutputVerdict:
+        with _guard_span("topic") as span:
+            verdict = await self._check_topic(question, first_sentence, lang)
+            _record_verdict(span, verdict)
+            return verdict
+
+    async def _check_topic(self, question: str, first_sentence: str, lang: Lang) -> OutputVerdict:
         try:
             response = await self.llm.complete(self._topic_request(question, first_sentence, lang))
             on_topic = _parse_topic(response.text)

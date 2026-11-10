@@ -8,6 +8,9 @@ with the masked text. Any internal exception -> `block` with reason `guard_failu
 Injection is searched in the masked text AND in the original text, so masking can neither hide
 an attack nor create one. When masking itself fails, `masked_text` is empty: the raw text is
 never returned.
+
+Phase 14 (TASK-133, OBS-01): every check is one `guardrail` span (CT-62) with the type (`input`),
+the verdict and the reasons; never the text.
 """
 
 import contextlib
@@ -18,6 +21,7 @@ from api.config import Settings
 from api.guardrails.patterns import find_injection
 from api.guardrails.pii import mask_pii
 from api.observability.logging import log_event
+from api.observability.tracing import start_span
 
 GUARD_FAILURE = "guard_failure"
 
@@ -34,6 +38,13 @@ class InputGuard:
         self.settings = settings
 
     def check(self, text: str) -> InputVerdict:
+        with start_span("guardrail", **{"atlas.guardrail.type": "input"}) as span:
+            verdict = self._check(text)
+            span.set_attribute("atlas.guardrail.verdict", verdict.action)
+            span.set_attribute("atlas.guardrail.reasons", list(verdict.reasons))
+            return verdict
+
+    def _check(self, text: str) -> InputVerdict:
         masked_text = ""
         try:
             masked_text = mask_pii(text).text

@@ -1,5 +1,7 @@
 """FastAPI application factory (FND-01, FND-03). `app` is the uvicorn entry point."""
 
+import asyncio
+import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -12,12 +14,14 @@ from api.chat.stream_routes import stream_router
 from api.config import get_settings
 from api.db.engine import dispose_engine
 from api.errors import install_error_handlers
-from api.feedback.routes import feedback_router
+from api.feedback.routes import close_langfuse_api, feedback_router
 from api.health import router as health_router
 from api.observability.logging import configure_logging
 from api.observability.middleware import TraceIdMiddleware
-from api.observability.tracing import init_tracing
+from api.observability.tracing import init_tracing, shutdown_tracing
 from api.triage.routes import triage_router
+
+SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
 
 @asynccontextmanager
@@ -26,6 +30,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         await close_embedder()
+        await close_langfuse_api()
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(asyncio.to_thread(shutdown_tracing), SHUTDOWN_TIMEOUT_SECONDS)
         await dispose_engine()
 
 

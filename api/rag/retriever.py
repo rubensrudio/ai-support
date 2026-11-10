@@ -8,18 +8,24 @@ phase 04 `vector_bruteforce`, phase 05 `vector_hnsw` and `hybrid` (`register_hyb
 the searcher receives both the question and its embedding; full-text + HNSW fused with RRF,
 CT-36). A vector or hybrid mode without an embedder, an `EmbeddingError` and any
 search failure all become `RetrievalUnavailable` (RAG-94); an empty index yields `[]` (RAG-90).
+
+Phase 14 (TASK-133, OBS-01): each retrieval that searches is one `retrieval` span (CT-62) with
+the mode, `k`, and the ids, doc keys and scores of the returned chunks (in order); a failure is
+recorded on the span with its error type only (never the message).
 """
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import cast
 
+from opentelemetry.trace import Status, StatusCode
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from api.config import RetrievalMode, Settings
 from api.messages import Lang
 from api.observability.logging import log_event
+from api.observability.tracing import start_span
 from api.rag.embeddings import EmbeddingClient
 from api.rag.fulltext import ScoredChunk, search_fulltext
 from api.rag.hybrid import search_hybrid
@@ -142,17 +148,41 @@ class Retriever:
         registration = _REGISTRY.get(mode)
         if registration is None or (registration.needs_vector and self.embedder is None):
             raise RetrievalUnavailable(f"Retrieval mode '{mode}' is not available")
-        try:
-            query_vector: list[float] | None = None
-            if registration.needs_vector and self.embedder is not None:
-                [query_vector] = await self.embedder.embed([query])
-            async with self.session_factory() as session:
-                scored = await registration.search(session, query, query_vector, language, limit)
-                return await _hydrate(session, scored)
-        except Exception as exc:
-            # The message stays generic: driver errors may carry SQL text and parameters.
-            log_event("retrieval.failed", mode=mode, error_type=type(exc).__name__)
-            raise RetrievalUnavailable(f"Retrieval mode '{mode}' failed") from exc
+        failure: Exception | None = None
+        chunks: list[RetrievedChunk] = []
+        with start_span(
+            "retrieval",
+            **{
+                "atlas.retrieval.mode": mode,
+                "atlas.retrieval.k": limit,
+                "atlas.retrieval.language": language,
+            },
+        ) as span:
+            try:
+                query_vector: list[float] | None = None
+                if registration.needs_vector and self.embedder is not None:
+                    [query_vector] = await self.embedder.embed([query])
+                async with self.session_factory() as session:
+                    scored = await registration.search(
+                        session, query, query_vector, language, limit
+                    )
+                    chunks = await _hydrate(session, scored)
+            except Exception as exc:
+                # The message stays generic: driver errors may carry SQL text and parameters.
+                log_event("retrieval.failed", mode=mode, error_type=type(exc).__name__)
+                # Only the error type reaches the span: the exception is raised after the span
+                # ends, so its message and chained driver error are never recorded.
+                span.set_attribute("error.type", type(exc).__name__)
+                span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
+                failure = exc
+            else:
+                span.set_attribute("atlas.retrieval.count", len(chunks))
+                span.set_attribute("atlas.retrieval.chunk_ids", [c.chunk_id for c in chunks])
+                span.set_attribute("atlas.retrieval.doc_keys", [c.doc_key for c in chunks])
+                span.set_attribute("atlas.retrieval.scores", [float(c.score) for c in chunks])
+        if failure is not None:
+            raise RetrievalUnavailable(f"Retrieval mode '{mode}' failed") from failure
+        return chunks
 
 
 async def _hydrate(session: AsyncSession, scored: list[ScoredChunk]) -> list[RetrievedChunk]:

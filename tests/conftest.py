@@ -29,7 +29,14 @@ from api.db.engine import dispose_engine, get_engine, reset_engine
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 TEST_DB_PREFIX = "atlas_test_"
-HERMETIC_ENV = {"ATLAS_LLM_PROVIDER": "fake", "ATLAS_EMBEDDING_PROVIDER": "fake"}
+HERMETIC_ENV = {
+    "ATLAS_LLM_PROVIDER": "fake",
+    "ATLAS_EMBEDDING_PROVIDER": "fake",
+    # Never export test spans or scores to a Langfuse configured in the developer's .env.
+    "LANGFUSE_HOST": "",
+    "LANGFUSE_PUBLIC_KEY": "",
+    "LANGFUSE_SECRET_KEY": "",
+}
 
 
 def pytest_configure(config: pytest.Config) -> None:

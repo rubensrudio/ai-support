@@ -19,6 +19,9 @@ already reached the consumer, so replaying the turn on another provider could du
 call (RES-91) or mix two providers' answers. Once any event went out, errors propagate as is.
 `NotImplementedError` (a provider that cannot stream) also propagates, so
 `stream_or_complete` can fall back to `complete` on the whole chain.
+
+Phase 14 (TASK-133, OBS-01): every provider switch is also one `fallback` span (CT-62) with
+`ATTR_FALLBACK = "<from>-><to>"` and the reason (`atlas.fallback.reason`, the error type).
 """
 
 from collections.abc import AsyncIterator
@@ -26,6 +29,7 @@ from collections.abc import AsyncIterator
 from api.llm.circuit_breaker import CircuitBreaker
 from api.llm.client import LLMClient, LLMError, LLMRequest, LLMResponse, LLMStreamEvent
 from api.observability.logging import log_event
+from api.observability.tracing import ATTR_FALLBACK, start_span
 
 CIRCUIT_OPEN = "CircuitOpen"
 
@@ -91,6 +95,16 @@ def _log_fallback(previous: tuple[str, str] | None, to: str) -> None:
         return
     source, error_type = previous
     log_event("llm_fallback", **{"from": source, "to": to, "error_type": error_type})
+    with start_span(
+        "fallback",
+        **{
+            ATTR_FALLBACK: f"{source}->{to}",
+            "atlas.fallback.from": source,
+            "atlas.fallback.to": to,
+            "atlas.fallback.reason": error_type,
+        },
+    ):
+        pass
 
 
 def _all_failed(last_error: LLMError | None) -> AllProvidersFailed:

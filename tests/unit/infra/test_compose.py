@@ -78,7 +78,17 @@ def test_web_publishes_port_8080_and_depends_on_api(services: dict[str, Any]) ->
 
 
 def test_compose_has_no_langfuse(services: dict[str, Any]) -> None:
-    assert not any("langfuse" in name for name in services)
+    """Langfuse only exists behind the `observability` profile (DA-18, LAC-36)."""
+    outside_profile = [
+        name
+        for name, service in services.items()
+        if "observability" not in service.get("profiles", [])
+    ]
+
+    assert outside_profile
+    assert not any("langfuse" in name for name in outside_profile)
+    for name in outside_profile:
+        assert not any("langfuse" in dep for dep in services[name].get("depends_on", {})), name
 
 
 def test_api_dockerfile_uses_uv_and_a_non_root_user() -> None:

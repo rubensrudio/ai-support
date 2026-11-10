@@ -153,6 +153,8 @@ only when `settings.guardrails_enabled` (without it everything above is unchange
 """
 
 import asyncio
+import contextlib
+import contextvars
 import re
 import unicodedata
 import uuid
@@ -221,6 +223,7 @@ from api.llm.fake import FAKE_MODEL, FAKE_PROVIDER, FakeLLMClient
 from api.llm.fallback import AllProvidersFailed
 from api.messages import Lang, MessageKey, user_message
 from api.observability.logging import get_trace_id, log_event
+from api.observability.tracing import bind_session_id, reset_session_id
 from api.rag.citations import extract_citations
 from api.rag.embeddings import EmbeddingClient, OpenAIEmbeddingClient, build_embedder
 from api.rag.retriever import RetrievalUnavailable, RetrievedChunk, Retriever, is_vector_mode
@@ -374,63 +377,69 @@ class ChatService:
         # `get_owned` already checked that the conversation is the principal's, so refusing its
         # pending confirmations cannot touch another customer's (`refuse_pending` takes no owner).
         conversation = await self._conversation(request, principal)
-        if request.conversation_id is not None:
-            await self._refuse_pending(conversation, trace_id)
-        fallback: Lang = request.ui_language or principal.language
-        detected = detect_language(message, fallback=fallback)
-        if verdict is not None and verdict.action == "block":
-            async for event in self._block_input(
-                conversation.id, message, detected, fallback, verdict, trace_id
-            ):
-                yield event
-            return
-        await self.repository.append_message(
-            conversation.id, "user", message, "complete", detected, trace_id
-        )
-        await self.session.commit()
-        self._log_message(conversation.id, message, detected)
-        # Round 1: the first event, once the user message is committed and the conversation
-        # exists, before any token or tool (the JSON `collect` ignores it).
-        yield StartEvent(conversation_id=conversation.id, trace_id=trace_id)
-
-        if detected == "other":
-            content = user_message(MessageKey.UNSUPPORTED_LANGUAGE, UNSUPPORTED_LANGUAGE_REPLY_LANG)
-            log_event("chat_unsupported_language", conversation_id=str(conversation.id))
-            async for event in self._finish(
-                conversation.id, content, UNSUPPORTED_LANGUAGE_REPLY_LANG, trace_id
-            ):
-                yield event
-            return
-
-        reply_language: Lang = detected
+        session_token = bind_session_id(str(conversation.id))
         try:
-            chunks = await self._retrieve(message, reply_language)
-        except RetrievalUnavailable as exc:
-            log_event(
-                "chat_knowledge_unavailable",
-                conversation_id=str(conversation.id),
-                exc_type=type(exc).__name__,
+            if request.conversation_id is not None:
+                await self._refuse_pending(conversation, trace_id)
+            fallback: Lang = request.ui_language or principal.language
+            detected = detect_language(message, fallback=fallback)
+            if verdict is not None and verdict.action == "block":
+                async for event in self._block_input(
+                    conversation.id, message, detected, fallback, verdict, trace_id
+                ):
+                    yield event
+                return
+            await self.repository.append_message(
+                conversation.id, "user", message, "complete", detected, trace_id
             )
-            content = user_message(MessageKey.KNOWLEDGE_UNAVAILABLE, reply_language)
-            async for event in self._finish(conversation.id, content, reply_language, trace_id):
-                yield event
-            return
+            await self.session.commit()
+            self._log_message(conversation.id, message, detected)
+            # Round 1: the first event, once the user message is committed and the conversation
+            # exists, before any token or tool (the JSON `collect` ignores it).
+            yield StartEvent(conversation_id=conversation.id, trace_id=trace_id)
 
-        guard = await self._output_guardrail(principal, message, reply_language, [trace_id])
-        if not self.tools_enabled:
-            answer = self._plain_answer(
-                conversation, message, reply_language, chunks, guard, trace_id
+            if detected == "other":
+                content = user_message(
+                    MessageKey.UNSUPPORTED_LANGUAGE, UNSUPPORTED_LANGUAGE_REPLY_LANG
+                )
+                log_event("chat_unsupported_language", conversation_id=str(conversation.id))
+                async for event in self._finish(
+                    conversation.id, content, UNSUPPORTED_LANGUAGE_REPLY_LANG, trace_id
+                ):
+                    yield event
+                return
+
+            reply_language: Lang = detected
+            try:
+                chunks = await self._retrieve(message, reply_language)
+            except RetrievalUnavailable as exc:
+                log_event(
+                    "chat_knowledge_unavailable",
+                    conversation_id=str(conversation.id),
+                    exc_type=type(exc).__name__,
+                )
+                content = user_message(MessageKey.KNOWLEDGE_UNAVAILABLE, reply_language)
+                async for event in self._finish(conversation.id, content, reply_language, trace_id):
+                    yield event
+                return
+
+            guard = await self._output_guardrail(principal, message, reply_language, [trace_id])
+            if not self.tools_enabled:
+                answer = self._plain_answer(
+                    conversation, message, reply_language, chunks, guard, trace_id
+                )
+            else:
+                answer = self._agent_answer(
+                    conversation, principal, message, reply_language, chunks, guard, trace_id
+                )
+            answer = self._degrade_on_failure(
+                answer, conversation.id, principal.id, reply_language, trace_id
             )
-        else:
-            answer = self._agent_answer(
-                conversation, principal, message, reply_language, chunks, guard, trace_id
-            )
-        answer = self._degrade_on_failure(
-            answer, conversation.id, principal.id, reply_language, trace_id
-        )
-        async with closing_stream(answer) as stream:
-            async for event in stream:
-                yield event
+            async with closing_stream(answer) as stream:
+                async for event in stream:
+                    yield event
+        finally:
+            _reset_session_id(session_token)
 
     async def _plain_answer(
         self,
@@ -495,8 +504,10 @@ class ChatService:
     ) -> AsyncIterator[AgentEvent]:
         trace_id = get_trace_id()
         driving = False
+        session_token: contextvars.Token[str | None] | None = None
         try:
             pending = await self._resolve(confirmation_id, decision, customer)
+            session_token = bind_session_id(str(pending.conversation_id))
             yield StartEvent(conversation_id=pending.conversation_id, trace_id=trace_id)
             state = AgentState.from_dict(pending.agent_state)
             language = _state_language(pending.agent_state, customer.language)
@@ -543,6 +554,9 @@ class ChatService:
                 # as confirmed without its tool.
                 await self._rollback_cancelled("before_resume")
             raise
+        finally:
+            if session_token is not None:
+                _reset_session_id(session_token)
 
     async def _resolve(
         self, confirmation_id: uuid.UUID, decision: Decision, customer: CurrentCustomer
@@ -1110,6 +1124,14 @@ def _is_fake_script(llm: object) -> bool:
         if llm is None:
             return False
     return False
+
+
+def _reset_session_id(token: contextvars.Token[str | None]) -> None:
+    """Unbind the conversation id (OBS-01). A stream closed from another context (e.g. by the
+    garbage collector) cannot reset a token of the request context; the binding then simply
+    dies with that context."""
+    with contextlib.suppress(ValueError):
+        reset_session_id(token)
 
 
 def _default_guardrail_llm(llm: LLMClient) -> LLMClient:
