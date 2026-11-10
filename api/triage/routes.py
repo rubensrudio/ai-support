@@ -3,7 +3,9 @@
 Body `TriageRequest` -> 200 `TriageResult`; 422 `VALIDATION_ERROR` (empty text, extra fields such
 as `conversation_id`) without calling the LLM; 401 `AUTH_REQUIRED` without a persona session or
 a valid `X-Operator-Key` (`require_customer_or_operator`) without calling the LLM; 503
-`TRIAGE_UNAVAILABLE` with the error envelope only (no triage object). No rate limit yet.
+`TRIAGE_UNAVAILABLE` with the error envelope only (no triage object). After authentication,
+`enforce_triage_limits` (TASK-145) applies the demo limits: a persona gets the rate limit and the
+daily spend cap, the operator only the cap (LAC-35) -> 429 `RATE_LIMITED` / `DAILY_CAP_REACHED`.
 
 The principal dependency is resolved before the service runs, so a rejected request never
 reaches the LLM. `AtlasError(TRIAGE_UNAVAILABLE)` from the service is left to the standard
@@ -17,6 +19,7 @@ from fastapi import APIRouter, Depends
 
 from api.auth.deps import Principal, require_customer_or_operator
 from api.config import get_settings
+from api.limits.deps import enforce_triage_limits
 from api.llm.client import LLMClient
 from api.llm.factory import build_llm_client
 from api.triage.schemas import TriageRequest, TriageResult
@@ -39,7 +42,9 @@ def get_triage_service() -> TriageService:
     return TriageService(_llm_client(), get_settings())
 
 
-@triage_router.post("/triage", response_model=TriageResult)
+@triage_router.post(
+    "/triage", response_model=TriageResult, dependencies=[Depends(enforce_triage_limits)]
+)
 async def post_triage(
     request: TriageRequest,
     principal: Annotated[Principal, Depends(require_customer_or_operator)],

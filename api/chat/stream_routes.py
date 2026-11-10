@@ -8,6 +8,8 @@ CT-45 events encoded by `api.streaming.events`; 401 before opening the stream. T
 Before the stream opens (JSON error envelope, not SSE):
 - `require_customer` runs as a dependency: no valid session -> 401 `AUTH_REQUIRED`, and the
   service is never called;
+- the demo limits run next (TASK-145): `enforce_chat_limits` on `/chat/stream`,
+  `enforce_llm_budget` on the confirmation stream -> 429 `RATE_LIMITED` / `DAILY_CAP_REACHED`;
 - an invalid body is 422 `VALIDATION_ERROR` (FastAPI validation), and a blank or too long
   message is 422 too, because `ChatService.handle_message` validates eagerly.
 
@@ -40,6 +42,7 @@ from api.chat.routes import ConfirmationDecision
 from api.chat.schemas import ChatRequest
 from api.chat.service import ChatService, get_chat_service
 from api.errors import AtlasError, ErrorCode, error_message
+from api.limits.deps import enforce_chat_limits, enforce_llm_budget
 from api.llm.client import LLMError
 from api.messages import Lang
 from api.observability.logging import get_trace_id, log_event
@@ -58,7 +61,11 @@ class DisconnectAware(Protocol):
     async def is_disconnected(self) -> bool: ...
 
 
-@stream_router.post("/chat/stream", response_class=StreamingResponse)
+@stream_router.post(
+    "/chat/stream",
+    response_class=StreamingResponse,
+    dependencies=[Depends(enforce_chat_limits)],
+)
 async def post_chat_stream(
     request: Request,
     body: ChatRequest,
@@ -71,7 +78,9 @@ async def post_chat_stream(
 
 
 @stream_router.post(
-    "/chat/confirmations/{confirmation_id}/stream", response_class=StreamingResponse
+    "/chat/confirmations/{confirmation_id}/stream",
+    response_class=StreamingResponse,
+    dependencies=[Depends(enforce_llm_budget)],
 )
 async def post_confirmation_stream(
     request: Request,

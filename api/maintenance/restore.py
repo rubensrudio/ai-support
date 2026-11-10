@@ -15,9 +15,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
+
+from sqlalchemy import delete, select
+
+from api.auth.models import Customer
+from api.chat.models import Conversation
+from api.seed.commerce import seed_commerce
+from api.seed.personas import PERSONAS
 
 if TYPE_CHECKING:
+    from sqlalchemy.engine import CursorResult
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -28,4 +36,10 @@ class RestoreReport:
 
 
 async def restore_demo(session: AsyncSession, now: datetime) -> RestoreReport:
-    raise NotImplementedError("TASK-146")
+    usernames = [persona.username for persona in PERSONAS]
+    persona_ids = select(Customer.id).where(Customer.username.in_(usernames))
+    statement = delete(Conversation).where(Conversation.customer_id.in_(persona_ids))
+    result = await session.execute(statement, execution_options={"synchronize_session": False})
+    conversations_deleted = int(cast("CursorResult[Any]", result).rowcount)
+    seeded = await seed_commerce(session, now)
+    return RestoreReport(conversations_deleted=conversations_deleted, orders_reset=seeded.orders)

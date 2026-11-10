@@ -30,7 +30,7 @@ charges a streamed call with them, and the chat service recognises the offline `
 `InstrumentedLLMClient` (`llm_call`).
 """
 
-from api.config import SUBSCRIPTION_PROVIDERS, Settings
+from api.config import SUBSCRIPTION_PROVIDERS, MissingConfigError, Settings
 from api.llm.anthropic_adapter import PROVIDER as ANTHROPIC_PROVIDER
 from api.llm.anthropic_adapter import AnthropicAdapter
 from api.llm.chaos import ChaosLLMClient
@@ -47,6 +47,7 @@ from api.llm.fallback import FallbackLLMClient
 from api.llm.instrumented import InstrumentedLLMClient
 from api.llm.openai_adapter import PROVIDER as OPENAI_PROVIDER
 from api.llm.openai_adapter import OpenAIAdapter
+from api.llm.pricing import load_pricing_table
 from api.llm.retry import RetryingLLMClient
 
 PRIMARY = "primary"
@@ -92,7 +93,28 @@ def build_llm_client(settings: Settings) -> ResilientLLMClient:
                 settings,
             )
         )
+    paid = [model] if provider in PAID_PROVIDERS else []
+    if len(chain) > 1:
+        paid.append(secondary.model)
+    _require_pricing(settings, paid)
     return ResilientLLMClient(chain, model=model, provider=provider)
+
+
+PAID_PROVIDERS = frozenset({ANTHROPIC_PROVIDER, OPENAI_PROVIDER})
+
+
+def _require_pricing(settings: Settings, models: list[str]) -> None:
+    """Fail fast when a paid model has no price while the spend ledger is on (DEMO-03, DA-15).
+
+    The daily spend cap sums `llm_calls.cost_usd`; a paid model without an entry in the pricing
+    file would be recorded at 0 and never reach the cap, so the client refuses to build.
+    """
+    if not settings.llm_ledger_enabled:
+        return
+    table = load_pricing_table(settings.pricing_file)
+    for model in models:
+        if model not in table:
+            raise MissingConfigError(f"pricing entry for {model} in {settings.pricing_file}")
 
 
 def breaker_for(provider: str, settings: Settings) -> CircuitBreaker:

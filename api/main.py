@@ -16,6 +16,7 @@ from api.db.engine import dispose_engine
 from api.errors import install_error_handlers
 from api.feedback.routes import close_langfuse_api, feedback_router
 from api.health import router as health_router
+from api.maintenance.scheduler import start_scheduler
 from api.observability.logging import configure_logging
 from api.observability.middleware import TraceIdMiddleware
 from api.observability.tracing import init_tracing, shutdown_tracing
@@ -26,9 +27,14 @@ SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    maintenance = start_scheduler(app) if get_settings().maintenance_enabled else None
     try:
         yield
     finally:
+        if maintenance is not None:
+            maintenance.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await maintenance
         await close_embedder()
         await close_langfuse_api()
         with contextlib.suppress(TimeoutError):

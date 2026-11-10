@@ -1,0 +1,115 @@
+# Render Blueprint of the Atlas public demo (DA-27). The Operator deploys it from the Render dashboard.
+#
+# Steps (plan section 16): New > Blueprint > this repository; Render then prompts for every
+# `sync: false` variable (secrets and model ids). Nothing secret is written in this file.
+# - The API image runs `docker/api-entrypoint.sh`: `alembic upgrade head` (migration 0001
+#   creates the `vector` extension), `python -m api.seed`, `python -m ingest run` (with
+#   ATLAS_INGEST_ON_BOOT=true, below), then uvicorn on port 8000.
+# - `ATLAS_DATABASE_URL` is the managed database's `postgres://` URL; `api/config.py`
+#   rewrites it to `postgresql+psycopg://`.
+# - Langfuse is Langfuse Cloud in the demo (LAC-36): set `LANGFUSE_HOST` to the Cloud URL.
+# - Add a `config/pricing.json` entry for every model id set below, or cost estimation fails.
+# - After the first deploy, confirm the public URLs in README.md ("Live demo").
+
+services:
+  - type: web
+    name: atlas-api
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: ATLAS_APP_ENV
+        value: demo
+      - key: ATLAS_DATABASE_URL
+        fromDatabase:
+          name: atlas-db
+          property: connectionString
+      # Fault injection is always off in the public demo (DEMO-05).
+      - key: CHAOS_RATE
+        value: "0"
+      # Demo limits (DEMO-08, DEMO-09, DEMO-10) and the daily restore/purge job (DA-26).
+      - key: ATLAS_RATE_LIMIT_PER_HOUR
+        value: "20"
+      - key: ATLAS_DAILY_SPEND_CAP_USD
+        value: "2.00"
+      - key: ATLAS_LLM_LEDGER_ENABLED
+        value: "true"
+      - key: ATLAS_RETENTION_DAYS
+        value: "7"
+      - key: ATLAS_MAINTENANCE_ENABLED
+        value: "true"
+      - key: ATLAS_COOKIE_SECURE
+        value: "true"
+      # Hard cost limit of one agent run; bounds how far concurrent requests overshoot the cap.
+      - key: ATLAS_AGENT_MAX_COST_USD
+        value: "0.25"
+      # Render free has no shell: the entrypoint runs `python -m ingest run` on every boot
+      # (idempotent; embeddings use OPENAI_API_KEY; a failed document never blocks the start).
+      - key: ATLAS_INGEST_ON_BOOT
+        value: "true"
+      # LLM providers: Anthropic primary, OpenAI secondary model and embeddings.
+      - key: ATLAS_LLM_PROVIDER
+        value: anthropic
+      - key: ATLAS_EMBEDDING_PROVIDER
+        value: openai
+      - key: ATLAS_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: ATLAS_EMBEDDING_DIMENSIONS
+        value: "1536"
+      # Model ids: no safe default (they must match config/pricing.json), set by the Operator.
+      - key: ATLAS_PRIMARY_MODEL
+        sync: false
+      - key: ATLAS_SECONDARY_MODEL
+        sync: false
+      - key: ATLAS_GUARDRAIL_MODEL
+        sync: false
+      - key: ATLAS_JUDGE_MODEL
+        sync: false
+      # Secrets: prompted on the first Blueprint sync, never stored here.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LANGFUSE_HOST
+        sync: false
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: ATLAS_OPERATOR_API_KEY
+        sync: false
+      - key: ATLAS_PERSONA_PASSWORD
+        sync: false
+
+  - type: web
+    name: atlas-web
+    runtime: static
+    rootDir: web
+    buildCommand: npm ci && npx ng build
+    # `@angular/build:application` writes the browser bundle to dist/<project>/browser.
+    staticPublishPath: ./dist/web/browser
+    autoDeploy: false
+    routes:
+      # Same-origin API calls, like web/nginx.conf locally: `/api/chat` -> `<api>/chat`.
+      - type: rewrite
+        source: /api/*
+        destination: https://atlas-api.onrender.com/*
+      # SPA fallback: unknown paths are Angular routes.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+databases:
+  - name: atlas-db
+    plan: free
+    region: oregon
+    postgresMajorVersion: "16"
+    databaseName: atlas
+    user: atlas
+    ipAllowList: []

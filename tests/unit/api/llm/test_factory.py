@@ -240,3 +240,32 @@ def test_build_llm_client_wraps_the_primary_adapter() -> None:
     expected, model, provider = primary_adapter(settings)
     assert type(_layers(primary)[-1]) is type(expected)
     assert (client.model, client.provider) == (model, provider)
+
+
+def _pricing(tmp_path: Any, *models: str) -> str:
+    import json
+
+    price = {"input": 1, "output": 2, "cache_read": 0, "cache_write": 0}
+    path = tmp_path / "pricing.json"
+    path.write_text(json.dumps({model: price for model in models}), encoding="utf-8")
+    return str(path)
+
+
+def test_paid_model_without_price_refuses_to_build_with_the_ledger_on(tmp_path: Any) -> None:
+    settings = _with_secondary(
+        llm_ledger_enabled=True, pricing_file=_pricing(tmp_path, "claude-test")
+    )
+    with pytest.raises(MissingConfigError, match="gpt-test"):
+        build_llm_client(settings)
+
+
+def test_paid_models_with_prices_build_with_the_ledger_on(tmp_path: Any) -> None:
+    settings = _with_secondary(
+        llm_ledger_enabled=True, pricing_file=_pricing(tmp_path, "claude-test", "gpt-test")
+    )
+    assert isinstance(build_llm_client(settings), ResilientLLMClient)
+
+
+def test_ledger_off_skips_the_pricing_check(tmp_path: Any) -> None:
+    settings = _settings(llm_ledger_enabled=False, pricing_file=_pricing(tmp_path, "other"))
+    assert isinstance(build_llm_client(settings), ResilientLLMClient)

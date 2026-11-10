@@ -14,10 +14,18 @@ Contract (orchestrator skeleton; TASK-147 implements it without changing signatu
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import TYPE_CHECKING
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any, cast
+
+from sqlalchemy import delete
+
+from api.chat.models import Conversation
+from api.limits.models import LlmCall, RateLimitEvent
+from api.tickets.models import Ticket
+from api.tools.models import AuditLog, EmailOutbox
 
 if TYPE_CHECKING:
+    from sqlalchemy.engine import CursorResult
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from api.observability.langfuse_api import LangfuseApi
@@ -39,4 +47,29 @@ async def purge_expired(
     retention_days: int,
     langfuse: LangfuseApi | None,
 ) -> PurgeReport:
-    raise NotImplementedError("TASK-147")
+    cutoff = now - timedelta(days=retention_days)
+
+    async def purge(model: type[Any]) -> int:
+        statement = delete(model).where(model.created_at < cutoff)
+        result = await session.execute(statement, execution_options={"synchronize_session": False})
+        return int(cast("CursorResult[Any]", result).rowcount)
+
+    # Conversations first: their messages, feedback and pending confirmations go by cascade and
+    # younger tickets keep their row with `conversation_id = NULL` (migration 0011).
+    conversations = await purge(Conversation)
+    audit_rows = await purge(AuditLog)
+    emails = await purge(EmailOutbox)
+    tickets = await purge(Ticket)
+    llm_calls = await purge(LlmCall)
+    await purge(RateLimitEvent)
+    traces = 0
+    if langfuse is not None and langfuse.enabled:
+        traces = await langfuse.delete_traces_older_than(cutoff)
+    return PurgeReport(
+        conversations=conversations,
+        audit_rows=audit_rows,
+        emails=emails,
+        tickets=tickets,
+        llm_calls=llm_calls,
+        langfuse_traces=traces,
+    )

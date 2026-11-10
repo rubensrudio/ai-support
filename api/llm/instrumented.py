@@ -21,21 +21,39 @@ blocks and messages, masked as a whole and then cut at `PROMPT_ATTRIBUTE_MAX_CHA
 opened in a copy of the current context (`_DetachedSpan`), so it never becomes the current span
 of the caller across the `yield`s of a stream and closing it from another task or context cannot
 fail with `Failed to detach context`.
+
+Phase 15 (TASK-142, DEMO-03, AS-2): when `Settings.llm_ledger_enabled` is true, every call that
+reached the provider is also one `llm_calls` row via `record_llm_call`, written after the log and
+the span:
+- with usage (a `complete()`, a finished stream, or a stream that stopped or failed after its
+  `usage` event): the cost of that usage;
+- without usage (cancelled, failed, or a stream that ended or stopped before its `usage` event,
+  which Anthropic and OpenAI send only at the end): an input-only lower bound, the request's
+  locally counted input tokens (`count_messages`) at the model's input price, since those
+  tokens were already billed (output tokens already streamed are not counted);
+- not recorded: a call the provider rejected (non-recoverable 4xx, nothing billed) or one that
+  failed locally before it was sent (an exception that is not an `LLMError`, e.g. request
+  validation; adapters turn every failure after sending into an `LLMError`).
+An unknown cost (subscription provider, model without a price, broken pricing table) is recorded
+as 0 with the warning `llm_cost_unknown`. The ledger never changes the response, the stream
+events, the `llm_call` log or the span.
 """
 
 import asyncio
 import contextvars
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractContextManager
 from dataclasses import replace
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from opentelemetry.trace import Span, Status, StatusCode
 
-from api.config import SUBSCRIPTION_PROVIDERS
+from api.config import SUBSCRIPTION_PROVIDERS, get_settings
 from api.guardrails.pii import mask_pii
+from api.limits.ledger import log_cost_unknown, record_llm_call
 from api.llm.client import (
     LLMClient,
     LLMError,
@@ -122,6 +140,13 @@ class _DetachedSpan:
         self._context.run(self._manager.__exit__, None, None, None)
 
 
+def _billed_without_usage(exc: Exception) -> bool:
+    """A failed call that reached the provider and may have billed its input: an `LLMError`
+    (adapters raise it for every failure after sending) that is not a rejection. Any other
+    exception is a local failure before sending (e.g. request validation)."""
+    return isinstance(exc, LLMError) and not _is_rejection(exc)
+
+
 def _is_rejection(exc: BaseException) -> bool:
     """The provider refused the request (4xx, not retryable), so nothing was billed."""
     return (
@@ -159,13 +184,17 @@ class InstrumentedLLMClient:
             # The call was in flight: the provider may bill it, so the cost is unknown.
             self._log_cancelled(request, context_tokens, started, None, scope.span)
             scope.close()
+            await self._record_ledger(lambda: self._input_estimate(context_tokens))
             raise
         except Exception as exc:
             self._log_error(request, context_tokens, started, exc, scope.span)
             scope.close()
+            if _billed_without_usage(exc):
+                await self._record_ledger(lambda: self._input_estimate(context_tokens))
             raise
-        self._log_success(request, context_tokens, started, response.usage, scope.span)
+        cost = self._log_success(request, context_tokens, started, response.usage, scope.span)
         scope.close()
+        await self._record_ledger(lambda: cost)
         return response
 
     def stream(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
@@ -187,7 +216,7 @@ class InstrumentedLLMClient:
                         event = replace(event, model=self.model, provider=self.provider)
                 yield event
             logged = True
-            self._log_success(
+            cost = self._log_success(
                 request,
                 context_tokens,
                 started,
@@ -195,10 +224,16 @@ class InstrumentedLLMClient:
                 scope.span,
             )
             scope.close()
+            # No `usage` event: the provider did not say what it billed, so estimate the input.
+            await self._record_ledger(self._ledger_cost(cost, usage, context_tokens))
         except Exception as exc:
             if not logged:
                 logged = True
                 self._log_error(request, context_tokens, started, exc, scope.span)
+                scope.close()
+                # After the `usage` event those tokens were billed; before it, the input was.
+                if usage is not None or _billed_without_usage(exc):
+                    await self._record_ledger(self._ledger_cost(None, usage, context_tokens))
             scope.close()
             raise
         finally:
@@ -206,12 +241,50 @@ class InstrumentedLLMClient:
             # cancellation (CancelledError). Close the inner stream so the provider call ends.
             if not logged:
                 logged = True
-                self._log_cancelled(request, context_tokens, started, usage, scope.span)
+                cost = self._log_cancelled(request, context_tokens, started, usage, scope.span)
                 scope.close()
                 aclose = getattr(inner, "aclose", None)
                 if aclose is not None:
                     await aclose()
+                # Stopped mid-call: the usage, or at least the input, was billed.
+                await self._record_ledger(self._ledger_cost(cost, usage, context_tokens))
             scope.close()
+
+    def _ledger_cost(
+        self, cost: Decimal | None, usage: Usage | None, context_tokens: int
+    ) -> Callable[[], Decimal | None]:
+        """The ledger cost, computed only when the ledger is on: `cost` when it was already
+        priced from `usage`, the price of `usage` otherwise, and the input estimate without it."""
+        if usage is None:
+            return lambda: self._input_estimate(context_tokens)
+        if cost is not None:
+            return lambda: cost
+        return lambda: self._cost(usage)[0]
+
+    def _input_estimate(self, context_tokens: int) -> Decimal | None:
+        """Input-only lower bound of a call billed without usage: the locally counted input tokens
+        at the model's input price; output tokens already streamed are not counted (None when
+        the price is unknown)."""
+        return self._cost(Usage(input_tokens=context_tokens, output_tokens=0))[0]
+
+    async def _record_ledger(self, cost: Callable[[], Decimal | None]) -> None:
+        """One `llm_calls` row for a call that reached the provider; never raises (CT-67).
+
+        `cost` is evaluated only when the ledger is on, so pricing (and its `pricing_*` logs)
+        runs no extra time when it is off."""
+        if not get_settings().llm_ledger_enabled:
+            return
+        amount = cost()
+        if amount is None:
+            log_cost_unknown(provider=self.provider, model=self.model)
+            amount = Decimal(0)
+        await record_llm_call(
+            trace_id=get_trace_id(),
+            provider=self.provider,
+            model=self.model,
+            cost_usd=amount,
+            created_at=datetime.now(UTC),
+        )
 
     def _cost(self, usage: Usage) -> tuple[Decimal | None, str | None]:
         if self.provider in SUBSCRIPTION_PROVIDERS:
@@ -238,12 +311,14 @@ class InstrumentedLLMClient:
         started: float,
         usage: Usage,
         span: Span | None = None,
-    ) -> None:
+    ) -> Decimal | None:
+        """Log and record the call on the span; returns the estimated cost (None if unknown)."""
         cost, pricing_error = self._cost(usage)
         extra: dict[str, object] = {}
         if pricing_error is not None:
             extra["pricing_error"] = pricing_error
         self._emit(request, context_tokens, started, usage, cost, OUTCOME_OK, extra, span)
+        return cost
 
     def _log_cancelled(
         self,
@@ -252,7 +327,8 @@ class InstrumentedLLMClient:
         started: float,
         usage: Usage | None,
         span: Span | None = None,
-    ) -> None:
+    ) -> Decimal | None:
+        """Log and record the stopped call; returns the estimated cost (None if unknown)."""
         extra: dict[str, object] = {}
         cost: Decimal | None
         pricing_error: str | None
@@ -265,6 +341,7 @@ class InstrumentedLLMClient:
         if pricing_error is not None:
             extra["pricing_error"] = pricing_error
         self._emit(request, context_tokens, started, usage, cost, OUTCOME_CANCELLED, extra, span)
+        return cost
 
     def _log_error(
         self,

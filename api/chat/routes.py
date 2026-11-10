@@ -9,6 +9,10 @@ A `conversation_id` of another Customer gets the same 404 as a missing one (CHAT
 waiting for the Customer (TOOL-05, TOOL-13) and answers with the next `ChatResponse`. A missing
 or another Customer's confirmation is 404 `CONFIRMATION_NOT_FOUND`; one already resolved or
 expired is 409 `CONFIRMATION_NOT_PENDING` (TOOL-96).
+
+Demo limits (TASK-145, CT-70): after authentication and before the service, `POST /chat` runs
+`enforce_chat_limits` (rate limit, then daily spend cap) and the confirmation runs
+`enforce_llm_budget` (spend cap only) -> 429 `RATE_LIMITED` / `DAILY_CAP_REACHED`.
 """
 
 from typing import Annotated, Literal
@@ -20,6 +24,7 @@ from pydantic import BaseModel, ConfigDict
 from api.auth.deps import CurrentCustomer, require_customer
 from api.chat.schemas import ChatRequest, ChatResponse
 from api.chat.service import ChatService, get_chat_service
+from api.limits.deps import enforce_chat_limits, enforce_llm_budget
 
 chat_router = APIRouter()
 
@@ -32,7 +37,7 @@ class ConfirmationDecision(BaseModel):
     decision: Literal["confirm", "refuse"]
 
 
-@chat_router.post("/chat", response_model=ChatResponse)
+@chat_router.post("/chat", response_model=ChatResponse, dependencies=[Depends(enforce_chat_limits)])
 async def post_chat(
     request: ChatRequest,
     customer: Annotated[CurrentCustomer, Depends(require_customer)],
@@ -41,7 +46,11 @@ async def post_chat(
     return await service.collect(service.handle_message(request, customer))
 
 
-@chat_router.post("/chat/confirmations/{confirmation_id}", response_model=ChatResponse)
+@chat_router.post(
+    "/chat/confirmations/{confirmation_id}",
+    response_model=ChatResponse,
+    dependencies=[Depends(enforce_llm_budget)],
+)
 async def post_confirmation(
     confirmation_id: UUID,
     body: ConfirmationDecision,

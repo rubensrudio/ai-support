@@ -14,9 +14,13 @@ Contract (orchestrator skeleton; TASK-144 implements it without changing signatu
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
+
+from sqlalchemy import func, select, text
+
+from api.limits.models import RateLimitEvent
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +28,10 @@ if TYPE_CHECKING:
     from api.config import Settings
 
 WINDOW_SECONDS = 3600
+WINDOW = timedelta(seconds=WINDOW_SECONDS)
+# Namespaced so the per-customer key never collides with other advisory locks in the app.
+_LOCK_SQL = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
+_LOCK_NAMESPACE = "atlas:rate_limit:"
 
 
 @dataclass(frozen=True)
@@ -39,4 +47,21 @@ class RateLimiter:
     async def check_and_record(
         self, session: AsyncSession, customer_id: UUID, now: datetime
     ) -> RateDecision:
-        raise NotImplementedError("TASK-144")
+        now = now.replace(tzinfo=UTC) if now.tzinfo is None else now
+        # Serialises count + insert per customer until the caller's transaction ends.
+        await session.execute(_LOCK_SQL, {"key": f"{_LOCK_NAMESPACE}{customer_id}"})
+        row = (
+            await session.execute(
+                select(func.count(), func.min(RateLimitEvent.created_at)).where(
+                    RateLimitEvent.customer_id == customer_id,
+                    RateLimitEvent.created_at > now - WINDOW,
+                    RateLimitEvent.created_at <= now,
+                )
+            )
+        ).one()
+        count, oldest = int(row[0]), row[1]
+        if count >= self._settings.rate_limit_per_hour:
+            return RateDecision(allowed=False, retry_at=oldest + WINDOW)
+        session.add(RateLimitEvent(customer_id=customer_id, created_at=now))
+        await session.flush()
+        return RateDecision(allowed=True, retry_at=None)
