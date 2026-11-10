@@ -220,14 +220,27 @@ def _settings(**values: Any) -> Settings:
     return Settings(_env_file=None, **values)  # type: ignore[call-arg]
 
 
+def _primary_instrumented(client: object) -> InstrumentedLLMClient:
+    """The `InstrumentedLLMClient` of the factory chain's primary entry."""
+    current: object | None = client.chain[0][1]  # type: ignore[attr-defined]
+    while current is not None and not isinstance(current, InstrumentedLLMClient):
+        current = getattr(current, "inner", None)
+    assert isinstance(current, InstrumentedLLMClient)
+    return current
+
+
 def test_factory_fake_provider_needs_no_key() -> None:
     client = build_llm_client(_settings(llm_provider="fake", anthropic_api_key=None))
 
-    assert isinstance(client, InstrumentedLLMClient)
+    # Phase 12 (TASK-121): the factory returns the resilient chain; its primary entry is
+    # `Breaker(Retry(Instrumented(<adapter>)))`.
     assert isinstance(client, LLMClient)
     assert client.model == FAKE_MODEL
     assert client.provider == FAKE_PROVIDER
-    assert isinstance(client.inner, FakeLLMClient)
+    instrumented = _primary_instrumented(client)
+    assert instrumented.model == FAKE_MODEL
+    assert instrumented.provider == FAKE_PROVIDER
+    assert isinstance(instrumented.inner, FakeLLMClient)
 
 
 def test_factory_anthropic_without_key_raises_missing_config() -> None:
@@ -246,10 +259,15 @@ def test_factory_anthropic_with_key_builds_instrumented_adapter() -> None:
     )
     client = build_llm_client(settings)
 
-    assert isinstance(client, InstrumentedLLMClient)
     assert client.model == "claude-test"
     assert client.provider == "anthropic"
-    assert isinstance(client.inner, AnthropicAdapter)
+    instrumented = _primary_instrumented(client)
+    assert instrumented.model == "claude-test"
+    assert instrumented.provider == "anthropic"
+    adapter: object = instrumented.inner
+    while not isinstance(adapter, AnthropicAdapter) and hasattr(adapter, "inner"):
+        adapter = adapter.inner  # the chaos wrapper of the primary
+    assert isinstance(adapter, AnthropicAdapter)
 
 
 @pytest.mark.parametrize(

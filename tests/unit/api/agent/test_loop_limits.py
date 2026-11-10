@@ -32,6 +32,7 @@ from api.llm.client import (
     Usage,
 )
 from api.llm.fake import FakeLLMClient as ScriptedLLMClient
+from api.llm.instrumented import InstrumentedLLMClient
 from api.llm.pricing import UnknownModelPricing
 from api.messages import MessageKey, user_message
 from api.tools.registry import ToolContext, ToolDefinition, ToolErrorCode, ToolRegistry, ToolResult
@@ -613,3 +614,36 @@ async def test_phase_06_v1_state_still_resumes(
     assert _named(events_log, "agent_limit") == [
         {"reason": "step_limit", "steps": 4, "cost_usd": "0", "unknown_cost_calls": 0}
     ]
+
+
+class _ChainLike:
+    """Like the phase-12 chain: exposes the primary's identity, but the call is answered by
+    another provider (here a subscription CLI) whose instrumented stream tags `usage`."""
+
+    model = "claude-primary"
+    provider = "anthropic"
+
+    def __init__(self, answering: InstrumentedLLMClient) -> None:
+        self.answering = answering
+
+    async def complete(self, request: LLMRequest) -> LLMResponse:
+        return await self.answering.complete(request)
+
+    def stream(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
+        return self.answering.stream(request)
+
+
+async def test_streamed_cost_uses_the_answering_provider_identity(
+    events_log: list[tuple[str, dict[str, object]]],
+) -> None:
+    fx = Fixture()
+    inner = ScriptedLLMClient([_response(text="Done.")])
+    answering = InstrumentedLLMClient(inner, model="sonnet-sub", provider="claude_cli")
+    loop = AgentLoop(_ChainLike(answering), fx.registry, _settings())
+
+    events = await _collect(loop.run(_turn(fx)))
+
+    assert _done(events).status == "completed"
+    unknown = _named(events_log, "agent_cost_unknown")
+    assert unknown and unknown[0]["provider"] == "claude_cli"
+    assert unknown[0]["model"] == "sonnet-sub"

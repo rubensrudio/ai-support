@@ -18,6 +18,7 @@ Cost is never silently zero (AS-2):
 import asyncio
 import time
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from decimal import Decimal
 
 from api.config import SUBSCRIPTION_PROVIDERS
@@ -84,6 +85,8 @@ class InstrumentedLLMClient:
             async for event in inner:
                 if event.kind == "usage" and event.usage is not None:
                     usage = event.usage
+                    if event.model is None or event.provider is None:
+                        event = replace(event, model=self.model, provider=self.provider)
                 yield event
             logged = True
             self._log_success(

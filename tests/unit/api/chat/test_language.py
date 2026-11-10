@@ -60,3 +60,41 @@ def test_low_confidence_foreign_returns_fallback(monkeypatch: pytest.MonkeyPatch
 def test_detection_is_deterministic() -> None:
     results = {detect_language(GERMAN, fallback="pt") for _ in range(5)}
     assert results == {"other"}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Quanto custa o plano Plus?",
+        "Qual o prazo de entrega do pedido?",
+        "Você pode pausar minha assinatura?",
+        "Meu pedido ainda não chegou",
+    ],
+)
+def test_short_portuguese_detected_as_spanish_is_pt(text: str) -> None:
+    assert detect_language(text, fallback="en") == "pt"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Bonjour, je voudrais annuler ma commande",
+        "Vorrei annullare il mio ordine subito",
+        "Cancela mi pedido trece, por favor",
+        "Cuánto cuesta el plan Plus? Gracias",
+        "Puedo pausar o cancelar mi plan?",
+        "Quanto costa il piano Plus? Grazie",
+        "Qual è il prezzo del piano Plus?",
+        "Voglio annullare o cambiare ordine",
+        "Posso annullare il mio ordine adesso?",
+        "Dónde está mi pedido de ayer?",
+        "Cuándo llega la entrega de mi pedido?",
+    ],
+)
+def test_short_romance_text_without_portuguese_evidence_is_other(text: str) -> None:
+    assert detect_language(text, fallback="pt") == "other"
+
+
+def test_long_spanish_text_is_still_other() -> None:
+    text = "Hola, quisiera saber cuánto tiempo tarda el reembolso de mi pedido, por favor."
+    assert detect_language(text, fallback="en") == "other"

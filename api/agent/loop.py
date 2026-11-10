@@ -676,6 +676,7 @@ class AgentLoop:
         calls: list[ToolCall] = []
         usage: Usage | None = None
         stop_reason: str | None = None
+        streamed_identity: tuple[str, str] | None = None
         async with closing_stream(stream_or_complete(recorder, request)) as source:
             async for event in source:
                 if event.kind == "text_delta" and event.text:
@@ -687,6 +688,8 @@ class AgentLoop:
                     calls.append(event.tool_call)
                 elif event.kind == "usage" and event.usage is not None:
                     usage = event.usage
+                    if event.model and event.provider:
+                        streamed_identity = (event.model, event.provider)
                 elif event.kind == "stop":
                     stop_reason = event.stop_reason
         if recorder.response is not None:
@@ -696,7 +699,7 @@ class AgentLoop:
         if usage is None:
             log_event("agent_stream_without_usage")
             usage = Usage(input_tokens=0, output_tokens=0)
-        model, provider = self._identity()
+        model, provider = streamed_identity or self._identity()
         result.response = LLMResponse(
             text="".join(parts),
             tool_calls=calls,
@@ -726,7 +729,8 @@ class AgentLoop:
         )
 
     def _identity(self) -> tuple[str, str]:
-        """`(model, provider)` charged for a streamed call (the stream does not carry them)."""
+        """`(model, provider)` charged for a streamed call whose `usage` event did not carry the
+        answering provider's identity (set by `InstrumentedLLMClient` since phase 12)."""
         provider = getattr(self.llm, "provider", None)
         if not isinstance(provider, str) or not provider:
             provider = str(self.settings.llm_provider)

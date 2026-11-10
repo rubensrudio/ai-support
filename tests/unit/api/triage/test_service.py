@@ -299,3 +299,21 @@ async def test_ticket_closing_tag_cannot_break_out_of_the_delimiter(ticket: str)
     assert content.strip().endswith("</ticket>")
     inner = content.removeprefix("<ticket>\n").removesuffix("\n</ticket>")
     assert not re.search(r"<\s*/?\s*ticket", inner, re.IGNORECASE)
+
+
+async def test_all_providers_failed_becomes_triage_unavailable() -> None:
+    from api.errors import AtlasError, ErrorCode
+    from api.llm.fallback import AllProvidersFailed
+
+    class _Down:
+        async def complete(self, request: object) -> object:
+            raise AllProvidersFailed("every provider failed")
+
+        def stream(self, request: object) -> object:
+            raise AllProvidersFailed("every provider failed")
+
+    service = TriageService(_Down(), Settings(_env_file=None))  # type: ignore[arg-type,call-arg]
+    with pytest.raises(AtlasError) as caught:
+        await service.classify("My order never arrived and nobody answers.")
+    assert caught.value.code is ErrorCode.TRIAGE_UNAVAILABLE
+    assert caught.value.http_status == 503

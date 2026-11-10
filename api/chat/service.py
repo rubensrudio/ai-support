@@ -48,6 +48,18 @@ the RAG request, then the history window, no citations.
 A provider failure (chat or summarisation) becomes `AtlasError(LLM_UNAVAILABLE, 502)` without
 the provider text (CHAT-92), and no assistant message is stored.
 
+Phase 12 (TASK-121, RES-06, RES-91..93): the chat client is the resilient chain of
+`api.llm.factory` (retry, breaker and fallback to the secondary provider). When it raises
+`AllProvidersFailed` (every provider failed, or every circuit was open and none was called) on
+any model call of the turn (chat, summarisation, the answer after a confirmation; JSON and
+stream alike), the turn ends with `user_message(DEGRADED_RESPONSE, language)` stored with
+`status='degraded'` and a `done{status: 'degraded'}`; `open_ticket(reason='all_providers_failed',
+trace_id)` runs in the same transaction, committed with the answer, and `chat_degraded` is
+logged. Tools that already ran in the turn keep their effects and audit rows and are never run
+again: the chain only wraps model calls (RES-91). A failure after the first streamed event is not
+an `AllProvidersFailed` (the chain does not switch provider then, RES-93): it is still the
+`LLMError` above, i.e. an `error` event on the stream, and the customer may resend.
+
 Phase 06 (TASK-077) runs the agent loop (CT-45) when `settings.agent_tools_enabled` and the
 provider takes tools (`codex_cli` does not: it runs the plain chat and logs
 `chat_tools_unsupported_by_provider` once per process):
@@ -206,11 +218,13 @@ from api.llm.client import (
 )
 from api.llm.factory import build_llm_client
 from api.llm.fake import FAKE_MODEL, FAKE_PROVIDER, FakeLLMClient
+from api.llm.fallback import AllProvidersFailed
 from api.messages import Lang, MessageKey, user_message
 from api.observability.logging import get_trace_id, log_event
 from api.rag.citations import extract_citations
 from api.rag.embeddings import EmbeddingClient, OpenAIEmbeddingClient, build_embedder
 from api.rag.retriever import RetrievalUnavailable, RetrievedChunk, Retriever, is_vector_mode
+from api.tickets.service import open_ticket
 from api.tools.audit import list_successful_actions
 from api.tools.catalog import build_default_registry
 from api.tools.models import CURRENCY, Order, OrderStatus, Refund
@@ -225,6 +239,9 @@ __all__ = [
 ]
 
 UNSUPPORTED_LANGUAGE_REPLY_LANG: Lang = "en"
+
+# `Ticket.reason` of a turn answered with the degraded message (RES-06, RES-92).
+ALL_PROVIDERS_FAILED = "all_providers_failed"
 
 # Providers whose adapter rejects tool definitions (`LLMError`, not recoverable): the chat runs
 # without tools for them, as with `agent_tools_enabled=False`.
@@ -408,6 +425,9 @@ class ChatService:
             answer = self._agent_answer(
                 conversation, principal, message, reply_language, chunks, guard, trace_id
             )
+        answer = self._degrade_on_failure(
+            answer, conversation.id, principal.id, reply_language, trace_id
+        )
         async with closing_stream(answer) as stream:
             async for event in stream:
                 yield event
@@ -496,15 +516,21 @@ class ChatService:
                 suspend=self._suspend_fn(pending.conversation_id, ctx),
                 conversation_id=pending.conversation_id,
             )
-            driven = self._drive(
-                events,
+            driven = self._degrade_on_failure(
+                self._drive(
+                    events,
+                    pending.conversation_id,
+                    None,
+                    partial=lambda: loop.partial_text,
+                    is_settled=lambda: loop.resumed_call_settled,
+                    language=language,
+                    trace_id=trace_id,
+                    guard=guard,
+                ),
                 pending.conversation_id,
-                None,
-                partial=lambda: loop.partial_text,
-                is_settled=lambda: loop.resumed_call_settled,
-                language=language,
-                trace_id=trace_id,
-                guard=guard,
+                customer.id,
+                language,
+                trace_id,
             )
             driving = True  # from here `_drive` handles a cancellation
             async with closing_stream(driven) as stream:
@@ -571,6 +597,58 @@ class ChatService:
             else:
                 await self._rollback_cancelled("before_confirmed_tool", [settle, events])
             raise
+
+    async def _degrade_on_failure(
+        self,
+        events: AsyncIterator[AgentEvent],
+        conversation_id: uuid.UUID,
+        customer_id: uuid.UUID,
+        language: Lang,
+        trace_id: str,
+    ) -> AsyncIterator[AgentEvent]:
+        """Forward `events`; when every provider fails (`AllProvidersFailed`, RES-06, RES-92)
+        end the turn with the degraded answer and a ticket instead of an error."""
+        try:
+            async with closing_stream(events) as stream:
+                async for event in stream:
+                    yield event
+        except AllProvidersFailed as exc:
+            async for event in self._degraded(
+                conversation_id, customer_id, language, trace_id, exc
+            ):
+                yield event
+
+    async def _degraded(
+        self,
+        conversation_id: uuid.UUID,
+        customer_id: uuid.UUID,
+        language: Lang,
+        trace_id: str,
+        exc: AllProvidersFailed,
+    ) -> AsyncIterator[AgentEvent]:
+        """Open the ticket and store the degraded answer in one commit (RES-06). What already
+        ran in the turn (tools and their audit rows, a confirmation's resolution) is committed
+        with it and never run again (RES-91)."""
+        ticket = await open_ticket(
+            self.session,
+            conversation_id=conversation_id,
+            customer_id=customer_id,
+            reason=ALL_PROVIDERS_FAILED,
+            trace_id=trace_id,
+        )
+        cause = exc.__cause__
+        log_event(
+            "chat_degraded",
+            conversation_id=str(conversation_id),
+            ticket_id=str(ticket.id),
+            reason=ALL_PROVIDERS_FAILED,
+            error_type=type(cause).__name__ if cause is not None else "CircuitOpen",
+        )
+        content = user_message(MessageKey.DEGRADED_RESPONSE, language)
+        async for event in self._finish(
+            conversation_id, content, language, trace_id, status="degraded"
+        ):
+            yield event
 
     async def _persist_cancelled(
         self,
@@ -688,7 +766,7 @@ class ChatService:
     ) -> AsyncIterator[AgentEvent]:
         """Store the assistant reply, commit, then emit its citations and the `done` event."""
         citations = extract_citations(content, chunks) if chunks is not None else []
-        message_status = "blocked" if status == "blocked" else "complete"
+        message_status = status if status in ("blocked", "degraded") else "complete"
         reply = await self.repository.append_message(
             conversation_id, "assistant", content, message_status, language, trace_id
         )

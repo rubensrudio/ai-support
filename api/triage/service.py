@@ -32,6 +32,7 @@ from pydantic import ValidationError
 from api.config import Settings
 from api.errors import AtlasError, ErrorCode
 from api.llm.client import ChatMessage, LLMClient, LLMError, LLMRequest, SystemBlock
+from api.llm.fallback import AllProvidersFailed
 from api.observability.logging import log_event
 from api.prompts import load_prompt
 from api.triage.schemas import TriageResult, triage_output_schema
@@ -108,7 +109,8 @@ class TriageService:
             )
             try:
                 response = await self.llm.complete(request)
-            except LLMError as exc:
+            except (LLMError, AllProvidersFailed) as exc:
+                # `AllProvidersFailed`: the resilient chain (phase 12) exhausted every provider.
                 self._fail(active, attempt, type(exc).__name__)
                 raise AtlasError(ErrorCode.TRIAGE_UNAVAILABLE, 503) from exc
             try:

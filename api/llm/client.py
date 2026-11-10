@@ -70,11 +70,17 @@ class LLMResponse:
 
 @dataclass(frozen=True)
 class LLMStreamEvent:
+    """One streamed event. `model`/`provider` are set on the `usage` event by the
+    `InstrumentedLLMClient` of the provider that answered (phase 12: with a fallback chain the
+    answering provider may not be the primary), so the cost is charged to the right model."""
+
     kind: StreamEventKind
     text: str = ""
     tool_call: ToolCall | None = None
     usage: Usage | None = None
     stop_reason: str | None = None
+    model: str | None = None
+    provider: str | None = None
 
 
 class LLMError(Exception):
