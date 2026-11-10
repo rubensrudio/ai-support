@@ -1,4 +1,6 @@
-"""Eval CLI: `python -m evals run --dataset <glob> --target <name> --out <file>` (CT-10).
+"""Eval CLI (CT-10): `python -m evals run --dataset <glob> --target <name> --out <file>` and
+`python -m evals gate --current <report> [--base <report>] [--markdown <out>]` (see
+`evals.gate`, exit 0 pass/baseline, 1 regression, 2 error).
 
 Exit codes: 0 when the run completed, 2 on an execution error (unreadable or invalid dataset,
 no file matched, unknown target, or a case whose target or grader raised). Scores below
@@ -30,6 +32,8 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--dataset", required=True, help="JSONL file or glob pattern")
     run.add_argument("--target", required=True, help=f"target name ({', '.join(TARGETS)})")
     run.add_argument("--out", required=True, type=Path, help="report JSON file to write")
+    gate = commands.add_parser("gate", help="compare a report with the baseline")
+    gate.add_argument("rest", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
     return parser
 
 
@@ -69,7 +73,12 @@ def _run(dataset: str, target_name: str, out: Path) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if raw[:1] == ["gate"]:
+        from evals.gate import main as gate_main
+
+        return gate_main(raw[1:])
+    args = _build_parser().parse_args(raw)
     configure_logging(get_settings())
     if args.command == "run":
         return _run(args.dataset, args.target, args.out)
