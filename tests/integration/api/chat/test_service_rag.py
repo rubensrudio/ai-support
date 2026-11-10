@@ -14,7 +14,7 @@ from api.chat.models import Conversation
 from api.chat.prompt_builder import (
     NO_EXCERPTS_INSTRUCTION,
     grounded_system_prompt,
-    system_prompt,
+    language_instruction,
 )
 from api.chat.repository import ConversationRepository
 from api.chat.schemas import ChatRequest, Citation
@@ -124,7 +124,9 @@ async def test_response_citations_match_markers_of_the_answer(
     for n, chunk in enumerate(CHUNKS, start=1):
         assert f'<untrusted_document index="{n}" source="{chunk.document_title}"' in sent
         assert chunk.content in sent
-    assert fake.requests[0].system[0].text == grounded_system_prompt("en")
+    # Phase 11 (TASK-110): stable system first (cache breakpoint), reply language after it.
+    assert fake.requests[0].system[0].text == grounded_system_prompt()
+    assert fake.requests[0].system[1].text == language_instruction("en")
     assert (
         fake.requests[0]
         .messages[-1]
@@ -250,8 +252,11 @@ async def test_prompt_layout_comes_from_settings(
     )
 
     request = fake.requests[0]
+    # cache_ordered: stable block with the breakpoint + variable block with the language;
+    # naive: one block with date/time and language on top, no breakpoint (TASK-110).
     assert request.system[0].cache_breakpoint is (layout == "cache_ordered")
-    assert len(request.system) == 1
+    assert len(request.system) == (2 if layout == "cache_ordered" else 1)
+    assert not any(block.cache_breakpoint for block in request.system[1:])
     assert '<untrusted_document index="1" source="Help article 1"' in request.messages[-1].content
 
 
@@ -268,7 +273,11 @@ async def test_retrieval_mode_none_keeps_phase_two_request(
 
     assert retriever.calls == []
     request = fake.requests[0]
-    assert [block.text for block in request.system] == [system_prompt("en")]
+    # Phase 11 (TASK-110): the same stable prefix as the RAG request, then the language.
+    assert [block.text for block in request.system] == [
+        grounded_system_prompt(),
+        language_instruction("en"),
+    ]
     assert [(m.role, m.content) for m in request.messages] == [("user", QUESTION)]
     assert response.citations == []
 
@@ -283,7 +292,10 @@ async def test_without_retriever_there_is_no_retrieval_and_no_citation(
         service.handle_message(ChatRequest(message=QUESTION), principal_of(await make_customer()))
     )
 
-    assert [block.text for block in fake.requests[0].system] == [system_prompt("en")]
+    assert [block.text for block in fake.requests[0].system] == [
+        grounded_system_prompt(),
+        language_instruction("en"),
+    ]
     assert response.citations == []
 
 

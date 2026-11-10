@@ -13,19 +13,19 @@ def _clear_cache() -> None:
     load_prompt.cache_clear()
 
 
-def test_system_prompt_has_language_placeholder_and_citation_rule() -> None:
+def test_system_prompt_has_citation_rule() -> None:
+    assert "[n]" in load_prompt("system")
+
+
+def test_system_prompt_has_no_placeholder_nor_reply_language() -> None:
+    # Phase 11 (TASK-110, DA-23): the system prompt is the stable cache prefix; the reply
+    # language goes in a variable block after it (`api.chat.prompt_builder`).
     prompt = load_prompt("system")
 
-    assert "{language}" in prompt
-    assert "[n]" in prompt
-
-
-def test_system_prompt_only_placeholder_is_language() -> None:
-    prompt = load_prompt("system")
-
-    assert re.findall(r"\{[^}]*\}", prompt) == ["{language}"] * prompt.count("{language}")
-    rendered = prompt.format(language="English")
-    assert "{" not in rendered and "}" not in rendered
+    assert re.findall(r"\{[^}]*\}", prompt) == []
+    assert "Always reply in" not in prompt
+    for name in ("English", "Portuguese"):
+        assert name not in prompt
 
 
 def test_system_prompt_has_no_dynamic_data() -> None:
@@ -65,7 +65,7 @@ def test_load_prompt_does_not_depend_on_cwd(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    assert "{language}" in load_prompt("system")
+    assert "Atlas" in load_prompt("system")
 
 
 def test_load_prompt_is_cached() -> None:

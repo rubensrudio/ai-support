@@ -1,10 +1,13 @@
 """LLM request builder with numbered, untrusted knowledge-base documents (CT-31).
 
-TASK-048 (RAG-03, RAG-04), TASK-105 (GRD-02). `build_request` puts together, for one chat turn:
+TASK-048 (RAG-03, RAG-04), TASK-105 (GRD-02), TASK-110 (CACHE-01, CACHE-02, DA-23).
+`build_request` puts together, for one chat turn:
 
-- the system prompt (`prompts/system.md`) with `{language}` replaced by the name of the reply
-  language (`system_prompt`) and followed by `UNTRUSTED_DOCUMENTS_RULE`
-  (`grounded_system_prompt`), then the summary of the history window (`summary_block`);
+- the grounded system prompt (`grounded_system_prompt`): `prompts/system.md` followed by
+  `UNTRUSTED_DOCUMENTS_RULE`. It carries no language, date, time or customer data, so it is
+  byte-identical across conversations and languages;
+- the reply-language instruction (`language_instruction`) and the summary of the history
+  window (`summary_block`);
 - the recent messages of the history window;
 - one last user turn with the knowledge block followed by the customer question.
 
@@ -24,14 +27,31 @@ markers are untouched by the escaping. The documents never go in a system block,
 layout: they are data from the corpus, not instructions; the system only carries the rule
 saying so (GRD-02).
 
-Layouts (the same content and order; phase 11 measures the cache hits):
+Layouts (phase 11 measures the cache hits). The provider reads a request as
+tools -> system blocks -> messages, so the tools given by the caller are part of the prefix and
+are passed through untouched, in their order:
 
-- `naive`: no cache breakpoint;
-- `cache_ordered`: the stable system blocks (system prompt, summary) are marked
-  `cache_breakpoint`, so the provider can cache the prefix that comes before the variable turn.
+- `cache_ordered` (default): `system[0]` is the grounded system prompt, the only stable block,
+  marked `cache_breakpoint` (end of the stable prefix: tools + this block). After it comes
+  `system[1]`, the variable block with the reply-language instruction and the summary (DA-23),
+  then the history and the last user turn;
+- `naive`: the "before" of demo 11. One system block that starts with the current UTC date and
+  time (`clock`) and the reply-language instruction, then the grounded system prompt, plus the
+  summary block; no breakpoint. The top of the prompt changes on every call, so no prefix can be
+  reused.
+
+`build_base_request` is the request without retrieval (the phase-02 path of
+`api.chat.service`: `retrieval_mode="none"` or no retriever): the same system blocks, in the same
+layout, followed by the history window, which already ends with the customer message. Its stable
+prefix (tools + `grounded_system_prompt`) is byte-identical to the one of `build_request` for the
+same tools, so a conversation that switches between the two paths keeps hitting the cache. The
+untrusted-documents rule stays in that prefix even with no document: dropping it would split
+the prefix in two.
 """
 
 import re
+from collections.abc import Callable
+from datetime import UTC, datetime
 from html import escape
 from typing import Literal
 
@@ -42,7 +62,10 @@ from api.prompts import load_prompt
 from api.rag.retriever import RetrievedChunk
 
 LANGUAGE_NAMES: dict[Lang, str] = {"en": "English", "pt": "Brazilian Portuguese"}
-LANGUAGE_PLACEHOLDER = "{language}"
+LANGUAGE_INSTRUCTION = (
+    "Language:\n- Always reply in {language}, the language of the customer's message."
+)
+NOW_PREFIX = "Current date and time (UTC): "
 DOCUMENT_TAG = "untrusted_document"
 
 UNTRUSTED_DOCUMENTS_RULE = (
@@ -70,21 +93,32 @@ _LOOKALIKE_OPENERS = "＜﹤‹〈〈⟨"
 _FORGED_DELIMITER = re.compile(rf"[{_LOOKALIKE_OPENERS}](?=\s*/?\s*{DOCUMENT_TAG})", re.IGNORECASE)
 
 
+def language_instruction(language: Lang) -> str:
+    """The reply-language instruction, sent after the stable prefix (DA-23)."""
+    return LANGUAGE_INSTRUCTION.replace("{language}", LANGUAGE_NAMES[language])
+
+
 def system_prompt(language: Lang) -> str:
-    """`prompts/system.md` with `{language}` replaced by the reply language name.
+    """The whole prompt in one text: language instruction on top, then `prompts/system.md`.
 
-    `str.replace`, not `str.format`: the prompt may contain other braces.
+    Not used by the chat requests (`build_request`/`build_base_request`) nor by production
+    code: it only builds single-block, uncached requests in tests
+    (`tests/integration/demos/test_demo_03.py`).
     """
-    return load_prompt("system").replace(LANGUAGE_PLACEHOLDER, LANGUAGE_NAMES[language])
+    return f"{language_instruction(language)}\n\n{load_prompt('system').strip()}\n"
 
 
-def grounded_system_prompt(language: Lang) -> str:
-    """`system_prompt` followed by `UNTRUSTED_DOCUMENTS_RULE` (GRD-02).
+def grounded_system_prompt() -> str:
+    """`prompts/system.md` followed by `UNTRUSTED_DOCUMENTS_RULE` (GRD-02).
 
-    Used by `build_request`, the only request that carries knowledge-base documents; it is
-    stable per language, so the `cache_ordered` prefix stays cacheable.
+    The stable block of every chat request: the same bytes for every conversation and
+    language, so the `cache_ordered` prefix is cacheable (CACHE-02).
     """
-    return f"{system_prompt(language).rstrip()}\n\n{UNTRUSTED_DOCUMENTS_RULE}\n"
+    return f"{load_prompt('system').strip()}\n\n{UNTRUSTED_DOCUMENTS_RULE}\n"
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 def _neutralize(value: str) -> str:
@@ -121,6 +155,52 @@ def question_block(user_message: str) -> str:
     return f"<customer_question>\n{_text(user_message)}\n</customer_question>"
 
 
+def _system_blocks(
+    language: Lang,
+    summary: str | None,
+    layout: Literal["naive", "cache_ordered"],
+    clock: Callable[[], datetime],
+) -> list[SystemBlock]:
+    """System blocks shared by both chat requests (see the module docstring for the layouts)."""
+    summary_text = summary_block(summary).text if summary else None
+    if layout == "cache_ordered":
+        variable = language_instruction(language)
+        if summary_text:
+            variable = f"{variable}\n\n{summary_text}"
+        return [
+            SystemBlock(grounded_system_prompt(), cache_breakpoint=True),
+            SystemBlock(variable),
+        ]
+    top = (
+        f"{NOW_PREFIX}{clock().isoformat()}\n\n"
+        f"{language_instruction(language)}\n\n{grounded_system_prompt()}"
+    )
+    system = [SystemBlock(top)]
+    if summary_text:
+        system.append(SystemBlock(summary_text))
+    return system
+
+
+def build_base_request(
+    *,
+    language: Lang,
+    history: HistoryWindow,
+    tools: list[ToolSpec],
+    layout: Literal["naive", "cache_ordered"],
+    clock: Callable[[], datetime] = _utc_now,
+) -> LLMRequest:
+    """Chat request without retrieval: system blocks and the history window, as given.
+
+    `history.messages` already ends with the customer message of this turn.
+    """
+    return LLMRequest(
+        system=_system_blocks(language, history.summary, layout, clock),
+        messages=list(history.messages),
+        tools=list(tools),
+        purpose="chat",
+    )
+
+
 def build_request(
     *,
     language: Lang,
@@ -129,12 +209,16 @@ def build_request(
     user_message: str,
     tools: list[ToolSpec],
     layout: Literal["naive", "cache_ordered"],
+    clock: Callable[[], datetime] = _utc_now,
 ) -> LLMRequest:
-    """One chat request. `history` must not contain `user_message` (it is appended here)."""
-    breakpoint_ = layout == "cache_ordered"
-    system = [SystemBlock(grounded_system_prompt(language), cache_breakpoint=breakpoint_)]
-    if history.summary:
-        system.append(SystemBlock(summary_block(history.summary).text, breakpoint_))
+    """One chat request. `history` must not contain `user_message` (it is appended here).
+
+    `clock` only feeds the `naive` layout (the date and time on top of its system prompt).
+    """
     turn = f"{knowledge_block(chunks)}\n\n{question_block(user_message)}"
-    messages = [*history.messages, ChatMessage("user", turn)]
-    return LLMRequest(system=system, messages=messages, tools=list(tools), purpose="chat")
+    return LLMRequest(
+        system=_system_blocks(language, history.summary, layout, clock),
+        messages=[*history.messages, ChatMessage("user", turn)],
+        tools=list(tools),
+        purpose="chat",
+    )

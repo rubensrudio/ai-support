@@ -317,7 +317,8 @@ class GroundedFakeLLM(_CompleteOnly):
             quote = _first_sentence(chunk.content)
             if quote and _normalize(quote) in sent:
                 return _reply(request, f"{quote} [{index}]")
-        system = request.system[0].text if request.system else ""
+        # The reply language sits in a variable system block after the cached prefix (phase 11).
+        system = "\n".join(block.text for block in request.system)
         language: Lang = "pt" if "Brazilian Portuguese" in system else "en"
         if _normalize(NO_EXCERPTS_INSTRUCTION) in sent:
             return _reply(request, REFUSALS[language])

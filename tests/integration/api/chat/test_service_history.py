@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.agent.events import DoneEvent, StartEvent, TokenEvent
 from api.auth.models import Customer
+from api.chat.context import summary_block
+from api.chat.prompt_builder import grounded_system_prompt, language_instruction
 from api.chat.repository import ConversationRepository
 from api.chat.schemas import ChatRequest
 from api.chat.service import ChatService
@@ -26,9 +28,8 @@ from api.llm.client import (
 )
 from api.llm.fake import FakeLLMClient
 from api.llm.tokens import count_messages
-from api.messages import MessageKey, user_message
+from api.messages import Lang, MessageKey, user_message
 from api.observability.logging import bind_trace_id, reset_trace_id
-from api.prompts import load_prompt
 from api.tools.catalog import TOOL_NAMES
 
 pytestmark = pytest.mark.integration
@@ -47,8 +48,9 @@ def _response(text: str) -> LLMResponse:
     )
 
 
-def _system(language_name: str) -> str:
-    return load_prompt("system").replace("{language}", language_name)
+def _system(language: Lang) -> list[str]:
+    """Phase 11 (TASK-110): stable block (cache breakpoint), then the reply-language block."""
+    return [grounded_system_prompt(), language_instruction(language)]
 
 
 def _service(fake: FakeLLMClient, session: AsyncSession, **settings: object) -> ChatService:
@@ -81,7 +83,8 @@ async def test_second_message_sends_history_with_name(
         ("user", "What is my name?"),
     ]
     assert any("Rubens" in content for _, content in sent[:-1])
-    assert [block.text for block in fake.requests[1].system] == [_system("English")]
+    assert [block.text for block in fake.requests[1].system] == _system("en")
+    assert [block.cache_breakpoint for block in fake.requests[1].system] == [True, False]
     assert fake.requests[1].purpose == "chat"
     # Phase 06 (TASK-077): with agent tools enabled (default) the chat request carries them.
     assert [spec.name for spec in fake.requests[1].tools] == list(TOOL_NAMES)
@@ -288,11 +291,14 @@ async def test_long_conversation_is_summarized_and_summary_saved(
     chat_requests = [request for request in fake.requests if request.purpose == "chat"]
     assert len(chat_requests) == 6
     last = chat_requests[-1]
-    assert last.system[0].text == _system("English")
+    assert last.system[0].text == grounded_system_prompt()
     assert len(last.system) == 2
-    assert f"Summary number {fake.summaries}." in last.system[1].text
+    # The summary shares the variable block with the reply language (DA-23).
+    summary = summary_block(f"Summary number {fake.summaries}.")
+    assert last.system[1].text == f"{language_instruction('en')}\n\n{summary.text}"
     assert last.messages[-1].content == LONG_TEXT.format(n=5)
-    assert count_messages(last.system[1:], last.messages) <= 300
+    # The history budget covers the summary and the messages, not the fixed instructions.
+    assert count_messages([summary], last.messages) <= 300
 
     conversation = await ConversationRepository(db_session).get_owned(conversation_id, customer.id)
     await db_session.refresh(conversation)
@@ -328,18 +334,23 @@ async def test_full_history_mode_never_summarizes(
 
     assert [request.purpose for request in fake.requests] == ["chat"] * 4
     assert len(fake.requests[-1].messages) == 7
-    assert len(fake.requests[-1].system) == 1
+    # No summary: the variable block carries only the reply language (TASK-110).
+    assert [block.text for block in fake.requests[-1].system] == _system("en")
 
 
 @pytest.mark.parametrize(
-    ("message", "language_name"),
+    ("message", "language", "language_name"),
     [
-        ("I want to cancel my order from yesterday", "English"),
-        ("Quero cancelar meu pedido de ontem", "Brazilian Portuguese"),
+        ("I want to cancel my order from yesterday", "en", "English"),
+        ("Quero cancelar meu pedido de ontem", "pt", "Brazilian Portuguese"),
     ],
 )
 async def test_system_prompt_names_the_reply_language(
-    db_session: AsyncSession, make_customer: CustomerFactory, message: str, language_name: str
+    db_session: AsyncSession,
+    make_customer: CustomerFactory,
+    message: str,
+    language: Lang,
+    language_name: str,
 ) -> None:
     fake = FakeLLMClient([_response("ok")])
     service = _service(fake, db_session)
@@ -348,10 +359,33 @@ async def test_system_prompt_names_the_reply_language(
         service.handle_message(ChatRequest(message=message), principal_of(await make_customer()))
     )
 
-    system_text = fake.requests[0].system[0].text
-    assert "{language}" not in system_text
-    assert f"Always reply in {language_name}," in system_text
-    assert system_text == _system(language_name)
+    stable, variable = (block.text for block in fake.requests[0].system)
+    # Phase 11 (TASK-110, DA-23): the language is outside the stable (cached) block.
+    assert language_name not in stable
+    assert "{language}" not in stable + variable
+    assert f"Always reply in {language_name}," in variable
+    assert [stable, variable] == _system(language)
+
+
+async def test_naive_layout_puts_date_time_and_language_on_top(
+    db_session: AsyncSession, make_customer: CustomerFactory
+) -> None:
+    fake = FakeLLMClient([_response("ok")])
+    service = _service(fake, db_session, prompt_layout="naive")
+
+    await service.collect(
+        service.handle_message(
+            ChatRequest(message="Quero cancelar meu pedido de ontem"),
+            principal_of(await make_customer()),
+        )
+    )
+
+    (block,) = fake.requests[0].system
+    assert block.cache_breakpoint is False
+    assert block.text.startswith("Current date and time (UTC): ")
+    assert block.text.index("Always reply in Brazilian Portuguese,") < block.text.index(
+        grounded_system_prompt()
+    )
 
 
 async def test_assistant_reply_is_committed_before_done_event(migrated_database: str) -> None:

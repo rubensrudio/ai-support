@@ -18,6 +18,7 @@ from api.chat.prompt_builder import (
     UNTRUSTED_DOCUMENTS_RULE,
     build_request,
     grounded_system_prompt,
+    language_instruction,
     system_prompt,
 )
 from api.chat.schemas import Citation
@@ -163,25 +164,34 @@ def test_with_chunks_there_is_no_do_not_know_instruction() -> None:
 
 
 @pytest.mark.parametrize(("language", "name"), [("en", "English"), ("pt", "Brazilian Portuguese")])
-def test_system_prompt_is_rendered_with_the_reply_language(language: str, name: str) -> None:
-    request = _build(language=language)
+def test_reply_language_is_rendered_outside_the_grounded_system_prompt(
+    language: str, name: str
+) -> None:
+    # Phase 11 (TASK-110, DA-23): the language left the stable system block; `system_prompt`
+    # still gives the whole prompt in one text (language on top) for single-block callers.
+    request = _build(language=language, layout="cache_ordered")
 
-    rendered = load_prompt("system").replace("{language}", name)
-    assert system_prompt(language) == rendered  # type: ignore[arg-type]
-    # GRD-02: the request with documents adds the untrusted-documents rule to the system.
-    assert request.system[0].text == f"{rendered.rstrip()}\n\n{UNTRUSTED_DOCUMENTS_RULE}\n"
-    assert request.system[0].text == grounded_system_prompt(language)  # type: ignore[arg-type]
+    assert system_prompt(language) == (  # type: ignore[arg-type]
+        f"{language_instruction(language)}\n\n{load_prompt('system').strip()}\n"  # type: ignore[arg-type]
+    )
+    assert request.system[0].text == grounded_system_prompt()
+    assert request.system[0].text.endswith(f"\n\n{UNTRUSTED_DOCUMENTS_RULE}\n")
     assert "{language}" not in request.system[0].text
+    assert name not in request.system[0].text
+    assert request.system[1].text == language_instruction(language)  # type: ignore[arg-type]
+    assert f"Always reply in {name}," in request.system[1].text
 
 
 def test_naive_layout_keeps_documents_in_the_user_turn_without_breakpoints() -> None:
     tools = [ToolSpec(name="get_order", description="Order lookup", input_schema={})]
     request = _build(history=HISTORY, tools=tools)
 
-    assert request.system == [
-        SystemBlock(grounded_system_prompt("en")),
-        summary_block("The customer is called Ana."),
-    ]
+    assert len(request.system) == 2
+    assert request.system[0].text.startswith("Current date and time (UTC): ")
+    assert request.system[0].text.endswith(
+        f"{language_instruction('en')}\n\n{grounded_system_prompt()}"
+    )
+    assert request.system[1] == summary_block("The customer is called Ana.")
     assert not any('<untrusted_document index="' in block.text for block in request.system)
     assert not any(block.cache_breakpoint for block in request.system)
     assert [(m.role, m.content) for m in request.messages[:-1]] == [
@@ -195,13 +205,18 @@ def test_naive_layout_keeps_documents_in_the_user_turn_without_breakpoints() -> 
 
 
 def test_cache_ordered_layout_puts_stable_parts_first() -> None:
-    request = _build(history=HISTORY, layout="cache_ordered")
+    tools = [ToolSpec(name="get_order", description="Order lookup", input_schema={})]
+    request = _build(history=HISTORY, tools=tools, layout="cache_ordered")
 
-    assert [block.text for block in request.system] == [
-        grounded_system_prompt("en"),
-        summary_block("The customer is called Ana.").text,
+    # Stable prefix: tools (untouched) + grounded system prompt with the breakpoint; then the
+    # variable block with the language and the summary, the history and the last turn.
+    assert request.system == [
+        SystemBlock(grounded_system_prompt(), cache_breakpoint=True),
+        SystemBlock(
+            f"{language_instruction('en')}\n\n{summary_block('The customer is called Ana.').text}"
+        ),
     ]
-    assert all(block.cache_breakpoint for block in request.system)
+    assert request.tools == tools
     assert [(m.role, m.content) for m in request.messages[:-1]] == [
         ("user", "Hi"),
         ("assistant", "Hello, Ana."),
@@ -215,9 +230,9 @@ def test_cache_ordered_layout_puts_stable_parts_first() -> None:
 def test_cache_ordered_without_summary_marks_only_the_system_prompt() -> None:
     request = _build(layout="cache_ordered")
 
-    assert len(request.system) == 1
-    assert request.system[0].cache_breakpoint is True
-    assert request.system[0].text == grounded_system_prompt("en")
+    assert [block.cache_breakpoint for block in request.system] == [True, False]
+    assert request.system[0].text == grounded_system_prompt()
+    assert request.system[1].text == language_instruction("en")
 
 
 # --- extract_citations ---------------------------------------------------------------------

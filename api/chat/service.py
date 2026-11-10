@@ -17,10 +17,12 @@ The returned async iterator then:
 4. language `other` → fixed English text (`UNSUPPORTED_LANGUAGE`) stored as the assistant
    reply, with no LLM call and no tools (CHAT-95);
 5. otherwise builds the history window (CT-22) from the messages after
-   `Conversation.summary_upto_message_id`, calls the LLM with the system prompt, the summary as
-   an extra system block and the window, stores the reply (`status="complete"`) and the new
-   summary when one was produced (CHAT-04, CHAT-06). The `{language}` placeholder of the
-   system prompt is replaced with the name of the reply language (`system_prompt`);
+   `Conversation.summary_upto_message_id`, calls the LLM with the system blocks, the summary
+   and the window, stores the reply (`status="complete"`) and the new summary when one was
+   produced (CHAT-04, CHAT-06). Since phase 11 (TASK-110) the system blocks come from
+   `api.chat.prompt_builder` in the layout of `settings.prompt_layout`: with `cache_ordered` a
+   stable block with the cache breakpoint, then a variable block with the reply language and
+   the summary (DA-23);
 6. **commits** the assistant reply (and the summary) and only then yields one `DoneEvent`
    with the conversation id and the assistant message id. FastAPI closes the request session
    after the response is sent, so without this commit a failed commit at teardown would leave
@@ -40,7 +42,8 @@ its detected language (RAG-03):
   `collect`.
 
 Without a retriever, or with `retrieval_mode="none"` (the "without RAG" mode of demo_03), the
-request is the phase-02 one: system prompt, summary block and history window, no citations.
+request is the phase-02 one (`build_base_request`): the same system blocks and stable prefix as
+the RAG request, then the history window, no citations.
 
 A provider failure (chat or summarisation) becomes `AtlasError(LLM_UNAVAILABLE, 502)` without
 the provider text (CHAT-92), and no assistant message is stored.
@@ -175,14 +178,13 @@ from api.agent.loop import (
 )
 from api.agent.models import PendingConfirmation
 from api.auth.deps import CurrentCustomer
-from api.chat.context import HistoryWindow, LLMSummarizer, build_history, summary_block
+from api.chat.context import HistoryWindow, LLMSummarizer, build_history
 from api.chat.language import DetectedLanguage, detect_language
 from api.chat.models import Conversation
 from api.chat.prompt_builder import (
     LANGUAGE_NAMES,
-    LANGUAGE_PLACEHOLDER,
+    build_base_request,
     build_request,
-    system_prompt,
 )
 from api.chat.repository import ConversationRepository
 from api.chat.schemas import ChatRequest, ChatResponse, Citation
@@ -198,7 +200,6 @@ from api.llm.client import (
     LLMRequest,
     LLMResponse,
     LLMStreamEvent,
-    SystemBlock,
     ToolCall,
     ToolSpec,
     Usage,
@@ -218,11 +219,9 @@ from api.tools.registry import ToolContext, ToolRegistry
 
 __all__ = [
     "LANGUAGE_NAMES",
-    "LANGUAGE_PLACEHOLDER",
     "UNSUPPORTED_LANGUAGE_REPLY_LANG",
     "ChatService",
     "get_chat_service",
-    "system_prompt",
 ]
 
 UNSUPPORTED_LANGUAGE_REPLY_LANG: Lang = "en"
@@ -876,11 +875,11 @@ class ChatService:
         tools: list[ToolSpec] | None = None,
     ) -> LLMRequest:
         if chunks is None:
-            system = [SystemBlock(system_prompt(language))]
-            if window.summary:
-                system.append(summary_block(window.summary))
-            return LLMRequest(
-                system=system, messages=window.messages, tools=list(tools or []), purpose="chat"
+            return build_base_request(
+                language=language,
+                history=window,
+                tools=list(tools or []),
+                layout=self.settings.prompt_layout,
             )
         # The window ends with the user message persisted for this turn; `build_request`
         # appends it itself, after the excerpts, in its `<customer_question>` tag.

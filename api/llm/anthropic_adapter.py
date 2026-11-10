@@ -51,6 +51,8 @@ from api.llm.client import (
 )
 
 PROVIDER = "anthropic"
+# The Messages API rejects a request with more than 4 `cache_control` breakpoints.
+MAX_CACHE_BREAKPOINTS = 4
 RECOVERABLE_STATUSES = frozenset({408, 409, 429})
 # An `error` event inside a 200 stream carries no HTTP status; map its error type to the status
 # the API uses for it, so `recoverable` follows the same rule as a failed request.
@@ -73,8 +75,22 @@ def is_recoverable_status(status: int) -> bool:
 
 
 def _system_blocks(system: list[SystemBlock]) -> list[TextBlockParam]:
-    # cache_breakpoint is ignored until phase 11 (prompt cache).
-    return [{"type": "text", "text": block.text} for block in system if block.text]
+    """System blocks with `cache_control: ephemeral` on each `cache_breakpoint` (CACHE-01).
+
+    Empty blocks are not sent; a breakpoint on one moves to the last block sent before it,
+    which ends the same prefix (a leading empty block's breakpoint is dropped). Only the last
+    `MAX_CACHE_BREAKPOINTS` are kept: a later breakpoint covers the longer prefix.
+    """
+    blocks: list[TextBlockParam] = []
+    marked: list[int] = []
+    for block in system:
+        if block.text:
+            blocks.append({"type": "text", "text": block.text})
+        if block.cache_breakpoint and blocks and (not marked or marked[-1] != len(blocks) - 1):
+            marked.append(len(blocks) - 1)
+    for index in marked[-MAX_CACHE_BREAKPOINTS:]:
+        blocks[index]["cache_control"] = {"type": "ephemeral"}
+    return blocks
 
 
 def _tool_params(tools: list[ToolSpec]) -> list[ToolParam]:

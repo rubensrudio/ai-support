@@ -16,7 +16,6 @@ from api.chat.prompt_builder import (
     build_request,
     grounded_system_prompt,
     knowledge_block,
-    system_prompt,
 )
 from api.llm.client import ChatMessage, LLMRequest
 from api.prompts import load_prompt
@@ -170,12 +169,16 @@ def test_system_carries_the_untrusted_documents_rule(
 ) -> None:
     request = _build(chunks, layout=layout)
 
+    # Phase 11 (TASK-110): the stable block is the system prompt without its reply-language
+    # section, then the rule; `naive` puts the date/time and the language before it.
     assert UNTRUSTED_DOCUMENTS_RULE in request.system[0].text
-    assert request.system[0].text == grounded_system_prompt("en")
-    assert request.system[0].text.startswith(system_prompt("en").rstrip())
-    assert request.system[0].text.startswith(
-        load_prompt("system").replace("{language}", "English").rstrip()
-    )
+    assert request.system[0].text.endswith(grounded_system_prompt())
+    assert grounded_system_prompt().endswith(f"\n\n{UNTRUSTED_DOCUMENTS_RULE}\n")
+    if layout == "cache_ordered":
+        assert request.system[0].text == grounded_system_prompt()
+    for paragraph in load_prompt("system").split("\n\n"):
+        if "{language}" not in paragraph:
+            assert paragraph.strip() in grounded_system_prompt()
 
 
 def test_rule_says_data_never_instructions_and_protects_other_customers() -> None:

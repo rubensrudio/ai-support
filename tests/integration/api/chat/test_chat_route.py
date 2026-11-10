@@ -12,13 +12,13 @@ from chat_helpers import CustomerFactory, principal_of
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.deps import require_customer
+from api.chat.prompt_builder import grounded_system_prompt, language_instruction
 from api.chat.service import ChatService, get_chat_service
 from api.config import Settings
 from api.llm.client import LLMError, LLMResponse, Usage
 from api.llm.fake import FakeLLMClient
 from api.main import app as module_app
 from api.main import create_app
-from api.prompts import load_prompt
 
 pytestmark = pytest.mark.integration
 
@@ -80,9 +80,12 @@ async def test_chat_returns_scripted_answer(client: httpx.AsyncClient, fake: Fak
     assert body["trace_id"] == response.headers["x-trace-id"]
     assert len(fake.requests) == 1
     request = fake.requests[0]
+    # Phase 11 (TASK-110): stable system block (cache breakpoint), then the reply language.
     assert [block.text for block in request.system] == [
-        load_prompt("system").replace("{language}", "English")
+        grounded_system_prompt(),
+        language_instruction("en"),
     ]
+    assert [block.cache_breakpoint for block in request.system] == [True, False]
     assert [(m.role, m.content) for m in request.messages] == [("user", "Hi there")]
 
 
