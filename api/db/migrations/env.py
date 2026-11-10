@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 import api.agent.models  # noqa: F401
 import api.auth.models  # noqa: F401  (register tables on Base.metadata)
 import api.chat.models  # noqa: F401
+import api.feedback.models  # noqa: F401
 import api.rag.models  # noqa: F401
 import api.tickets.models  # noqa: F401
 import api.tools.models  # noqa: F401

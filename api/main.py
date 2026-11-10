@@ -12,9 +12,11 @@ from api.chat.stream_routes import stream_router
 from api.config import get_settings
 from api.db.engine import dispose_engine
 from api.errors import install_error_handlers
+from api.feedback.routes import feedback_router
 from api.health import router as health_router
 from api.observability.logging import configure_logging
 from api.observability.middleware import TraceIdMiddleware
+from api.observability.tracing import init_tracing
 from api.triage.routes import triage_router
 
 
@@ -28,7 +30,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
-    configure_logging(get_settings())
+    settings = get_settings()
+    configure_logging(settings)
+    init_tracing(settings)
     app = FastAPI(title="Atlas Support API", lifespan=lifespan)
     app.add_middleware(TraceIdMiddleware)
     install_error_handlers(app)
@@ -37,6 +41,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(stream_router)
     app.include_router(triage_router)
+    app.include_router(feedback_router)
     return app
 
 
